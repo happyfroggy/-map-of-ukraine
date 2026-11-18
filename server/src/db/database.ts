@@ -123,7 +123,7 @@ export async function openDatabase({ url, dir = ':memory:' }: DatabaseOptions): 
 function openPostgres(url: string): Database {
   pg.types.setTypeParser(INT8, Number);
   pg.types.setTypeParser(NUMERIC, Number);
-  const pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 30_000 });
+  const pool = new pg.Pool({ connectionString: withStrictSsl(url), max: 5, idleTimeoutMillis: 30_000 });
   pool.on('error', (err) => console.error('[db] idle client error', err.message));
 
   const raw =
@@ -151,6 +151,21 @@ function openPostgres(url: string): Database {
     },
     close: () => pool.end(),
   };
+}
+
+/**
+ * pg 8 already treats sslmode=require as verify-full (certificate + hostname checked);
+ * pg 9 will weaken it to libpq semantics. Pin the strict mode explicitly.
+ */
+function withStrictSsl(url: string): string {
+  try {
+    const u = new URL(url);
+    const mode = u.searchParams.get('sslmode');
+    if (mode === 'prefer' || mode === 'require' || mode === 'verify-ca') u.searchParams.set('sslmode', 'verify-full');
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 async function openPglite(dir: string): Promise<Database> {

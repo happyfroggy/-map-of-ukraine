@@ -45,6 +45,7 @@ npm test
 - For phones to open the QR link, set `PUBLIC_URL` to your machine's LAN address (e.g. `http://192.168.1.20:5173`) — Vite listens on all interfaces.
 
 **Production:** `npm run build` then `npm start` — the server serves `client/dist` on the same port (set `PUBLIC_URL` to that address).
+Locally, `npm start` also loads the root `.env.local` (Neon `DATABASE_URL`, pulled by `neon deploy`), while `npm run dev:server` always uses the embedded database so experiments never touch production data.
 
 **Map data:** region boundaries from [geoBoundaries](https://www.geoboundaries.org) (© OpenStreetMap contributors, ODbL 1.0), converted with `npm run geometry -w client -- <file.geojson>`. Kyiv and Sevastopol are drawn but not playable (the game has 25 regions).
 
@@ -106,7 +107,7 @@ Admin sockets connect with `auth: { adminToken }`.
 
 ## Deploying for free (Render + Neon)
 
-1. **Database — [Neon](https://neon.com)** (free Postgres): sign in with GitHub → create a project (region: Frankfurt) → copy the connection string (`postgresql://…?sslmode=require`).
+1. **Database — [Neon](https://neon.com)** (free Postgres): already linked via `neon.ts` (project `proud-sunset-76973523`, branch `production`). `npx neon deploy` applies the policy and pulls `DATABASE_URL` into `.env.local` (git-ignored). Use that pooled URL on Render.
 2. **App — [Render](https://render.com)**: sign in with GitHub → **New → Blueprint** → pick this repository. `render.yaml` configures everything; enter:
    - `ADMIN_PASSWORD` — the admin password;
    - `DATABASE_URL` — the Neon connection string.

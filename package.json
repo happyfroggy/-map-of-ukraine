@@ -15,5 +15,9 @@
     "start": "npm start -w server",
     "test": "npm test -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client"
+  },
+  "devDependencies": {
+    "@neon/config": "^1.14.3",
+    "@neon/env": "^2.1.6"
   }
 }

@@ -4,4 +4,7 @@ dist/
 *.db-shm
 *.db-wal
 .env
+.env.*
+!.env.example
+.neon
 server/data/
