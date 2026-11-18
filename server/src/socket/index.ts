@@ -79,7 +79,9 @@ export function attachSocketHandlers(io: IO, game: GameService, auth: Auth): voi
       respond(ack, () => {
         const player = game.getPlayerByToken(resumeSchema.parse(payload).token);
         attachPlayer(player);
-        return game.playerState(player.id);
+        const state = game.playerState(player.id);
+        if (state.session.status === 'lobby') socket.emit('lobby:players', game.listPlayers(player.session_id));
+        return state;
       }),
     );
 

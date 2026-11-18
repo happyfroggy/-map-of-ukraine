@@ -75,7 +75,11 @@ export interface PlayerState {
   player: PublicPlayer;
   session: SessionInfo;
   regions: Record<string, RegionStatus>;
+  /** When this player resolved their last region. */
+  finishedAt: number | null;
   results: ResultRow[] | null;
+  /** Server clock, so clients can correct for a skewed device clock. */
+  serverNow: number;
 }
 
 export interface AnswerResult {

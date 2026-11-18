@@ -341,7 +341,9 @@ export class GameService {
       player: toPublicPlayer(player),
       session: this.sessionInfo(session),
       regions,
+      finishedAt: player.finished_at,
       results: session.status === 'finished' ? this.results(session.id) : null,
+      serverNow: Date.now(),
     };
   }
 

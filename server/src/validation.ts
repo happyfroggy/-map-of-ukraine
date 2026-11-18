@@ -1,13 +1,13 @@
 import { z, type ZodError } from 'zod';
 
 const name = (label: string) =>
-  z.string({ required_error: `Вкажіть ${label}`, invalid_type_error: `Вкажіть ${label}` })
+  z.string({ error: `Вкажіть ${label}` })
     .trim()
     .min(1, `Вкажіть ${label}`)
     .max(50, `Поле «${label}» задовге`);
 
 export const roomCodeSchema = z
-  .string({ required_error: 'Вкажіть код кімнати' })
+  .string({ error: 'Вкажіть код кімнати' })
   .trim()
   .transform((s) => s.toUpperCase())
   .pipe(z.string().regex(/^[A-Z0-9]{4,8}$/, 'Некоректний код кімнати'));

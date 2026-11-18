@@ -18,7 +18,13 @@ map-of-ukraine/
 │   │   ├── http/            # auth, public & admin routes, error handler
 │   │   └── socket/          # real-time event handlers
 │   └── test/                # node:test — rules, game service, end-to-end sockets
-└── client/                  # React + TS + Canvas + Tailwind (next step)
+└── client/                  # React 19 + TS + Vite + Tailwind 4
+    ├── scripts/build-geometry.mjs  # GeoJSON → pre-projected polygons for the map
+    └── src/
+        ├── map/             # UkraineMap (Canvas, Path2D hit-testing), generated geometry.ts
+        ├── components/      # QuestionModal, Podium/Leaderboard, UI bits
+        ├── pages/           # Home, Join, Play (lobby → map → results), Admin*
+        └── lib/             # REST client, typed socket requests, storage, formatting
 ```
 
 ## Running
@@ -28,11 +34,18 @@ Requires Node ≥ 22.18 (runs TypeScript natively; no build step for the server)
 ```bash
 npm install
 cp server/.env.example server/.env   # set ADMIN_PASSWORD, PUBLIC_URL
-npm run dev:server                    # http://localhost:3000
+npm run dev:server                    # API + sockets on http://localhost:3000
+npm run dev:client                    # UI on http://localhost:5173 (proxies /api and /socket.io)
 npm test
 ```
 
-For phones to open the QR link, set `PUBLIC_URL` to your machine's LAN address (e.g. `http://192.168.1.20:5173`).
+- Players: open `/`, enter the room code, or scan the QR code.
+- Admin: `/admin` → «Гра» (create room, QR, start / force end, live progress) and «Питання» (CRUD).
+- For phones to open the QR link, set `PUBLIC_URL` to your machine's LAN address (e.g. `http://192.168.1.20:5173`) — Vite listens on all interfaces.
+
+**Production:** `npm run build` then `npm start` — the server serves `client/dist` on the same port (set `PUBLIC_URL` to that address).
+
+**Map data:** region boundaries from [geoBoundaries](https://www.geoboundaries.org) (© OpenStreetMap contributors, ODbL 1.0), converted with `npm run geometry -w client -- <file.geojson>`. Kyiv and Sevastopol are drawn but not playable (the game has 25 regions).
 
 ## Database schema
 
