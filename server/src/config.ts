@@ -5,13 +5,18 @@ export interface AppConfig {
   adminPassword: string;
   tokenSecret: string;
   adminTokenTtlMs: number;
+  /** postgres:// URL (production). When empty, an embedded PGlite database is used. */
+  databaseUrl: string | undefined;
+  /** Directory of the embedded PGlite database (local development). */
   databasePath: string;
   clientOrigins: string[];
   publicUrl: string;
+  /** Behind a reverse proxy (Render etc.) — needed for correct client IPs. */
+  trustProxy: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const isProd = env.NODE_ENV === 'production';
+  const isProd = env.NODE_ENV === 'production' || env.RENDER === 'true';
 
   let adminPassword = env.ADMIN_PASSWORD;
   if (!adminPassword) {
@@ -20,7 +25,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     console.warn('[config] ADMIN_PASSWORD not set — using "admin" (development only)');
   }
 
-  const clientOrigins = (env.CLIENT_ORIGIN ?? 'http://localhost:5173')
+  // Render provides RENDER_EXTERNAL_URL automatically.
+  const publicUrl = (env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || env.CLIENT_ORIGIN?.split(',')[0] || 'http://localhost:5173')
+    .trim()
+    .replace(/\/+$/, '');
+  const clientOrigins = (env.CLIENT_ORIGIN ?? `http://localhost:5173,${publicUrl}`)
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -30,8 +39,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminPassword,
     tokenSecret: env.TOKEN_SECRET || randomBytes(32).toString('hex'),
     adminTokenTtlMs: 12 * 60 * 60 * 1000,
-    databasePath: env.DATABASE_PATH ?? 'data/game.db',
+    databaseUrl: env.DATABASE_URL || undefined,
+    databasePath: env.DATABASE_PATH ?? 'data/pglite',
     clientOrigins,
-    publicUrl: (env.PUBLIC_URL ?? clientOrigins[0] ?? 'http://localhost:5173').replace(/\/+$/, ''),
+    publicUrl,
+    trustProxy: env.TRUST_PROXY === '1' || env.RENDER === 'true',
   };
 }

@@ -7,13 +7,13 @@ Real-time educational quiz: players conquer 25 regions of Ukraine (24 oblasts + 
 ```
 map-of-ukraine/
 ├── shared/types.ts          # types shared by server & client (REST DTOs + typed Socket.io events)
-├── server/                  # Node.js + Express 5 + Socket.io + SQLite (node:sqlite)
+├── server/                  # Node.js + Express 5 + Socket.io + PostgreSQL
 │   ├── src/
 │   │   ├── index.ts         # entry: open DB, seed, listen
 │   │   ├── app.ts           # builds Express app + Socket.io server (used by tests too)
 │   │   ├── config.ts        # env config
 │   │   ├── validation.ts    # zod schemas (Ukrainian error messages)
-│   │   ├── db/              # schema, seed data (75 questions), seed CLI
+│   │   ├── db/              # Postgres schema + driver (pg / embedded PGlite), seed data (75 questions)
 │   │   ├── domain/          # rules.ts (pure logic), game.ts (GameService), questions.ts (CRUD repo)
 │   │   ├── http/            # auth, public & admin routes, error handler
 │   │   └── socket/          # real-time event handlers
@@ -30,6 +30,7 @@ map-of-ukraine/
 ## Running
 
 Requires Node ≥ 22.18 (runs TypeScript natively; no build step for the server).
+No database to install locally: without `DATABASE_URL` the server uses embedded Postgres (PGlite) in `server/data/pglite`.
 
 ```bash
 npm install
@@ -47,7 +48,7 @@ npm test
 
 **Map data:** region boundaries from [geoBoundaries](https://www.geoboundaries.org) (© OpenStreetMap contributors, ODbL 1.0), converted with `npm run geometry -w client -- <file.geojson>`. Kyiv and Sevastopol are drawn but not playable (the game has 25 regions).
 
-## Database schema
+## Database schema (PostgreSQL)
 
 | Table | Purpose |
 |---|---|
@@ -58,7 +59,7 @@ npm test
 | `region_attempts` | one per player×region: the 3 drawn `question_ids`, correct/wrong counters, `status` in_progress/green/red |
 | `answers` | audit log of every submitted answer |
 
-Timestamps are epoch milliseconds. The DB is the source of truth; game rules are enforced server-side and correct answers are never sent to players before they answer.
+Timestamps are epoch milliseconds (BIGINT). The DB is the source of truth; game rules are enforced server-side and correct answers are never sent to players before they answer. State changes run in transactions with row locks, so double clicks and simultaneous finishes stay consistent.
 
 ## Game rules (server-enforced)
 
@@ -102,3 +103,15 @@ Admin sockets connect with `auth: { adminToken }`.
 | `game:started` | players + admin |
 | `admin:progress` | admin (live scoreboard) |
 | `game:ended` | players + admin |
+
+## Deploying for free (Render + Neon)
+
+1. **Database — [Neon](https://neon.com)** (free Postgres): sign in with GitHub → create a project (region: Frankfurt) → copy the connection string (`postgresql://…?sslmode=require`).
+2. **App — [Render](https://render.com)**: sign in with GitHub → **New → Blueprint** → pick this repository. `render.yaml` configures everything; enter:
+   - `ADMIN_PASSWORD` — the admin password;
+   - `DATABASE_URL` — the Neon connection string.
+3. Wait for the deploy (~3 min), then open `https://<service>.onrender.com/admin`.
+
+Every `git push` to `main` redeploys automatically. Tables and starter questions are created on first start.
+
+Free-tier caveat: the service sleeps after 15 min without visitors; the first visit takes ~1 min to wake it, so open the admin page a few minutes before a game. Open game connections keep it awake.

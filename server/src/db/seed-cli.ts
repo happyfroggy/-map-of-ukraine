@@ -6,13 +6,12 @@ import { countQuestions, seedQuestions, seedRegions } from './seed.ts';
 
 const reset = process.argv.includes('--reset');
 const config = loadConfig();
-const db = openDatabase(config.databasePath);
+const db = await openDatabase({ url: config.databaseUrl, dir: config.databasePath });
 
-seedRegions(db);
-if (reset || countQuestions(db) === 0) {
-  const n = seedQuestions(db, { reset });
-  console.log(`Seeded ${n} questions into ${config.databasePath}`);
+await seedRegions(db);
+if (reset || (await countQuestions(db)) === 0) {
+  console.log(`Seeded ${await seedQuestions(db, { reset })} questions`);
 } else {
-  console.log(`Questions already present (${countQuestions(db)}). Use --reset to re-seed.`);
+  console.log(`Questions already present (${await countQuestions(db)}). Use --reset to re-seed.`);
 }
-db.close();
+await db.close();

@@ -24,6 +24,7 @@ export function createAppServer({ db, config }: { db: Database; config: AppConfi
 
   const app = express();
   app.disable('x-powered-by');
+  if (config.trustProxy) app.set('trust proxy', 1); // real client IP for the login rate limiter
   app.use(cors({ origin: config.clientOrigins }));
   app.use(express.json({ limit: '100kb' }));
 

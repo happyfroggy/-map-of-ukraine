@@ -1,5 +1,5 @@
 import type { AdminQuestion, QuestionInput, QuestionType } from '../../../shared/types.ts';
-import type { Database } from '../db/database.ts';
+import type { Database, Queryable } from '../db/database.ts';
 import { GameError } from './errors.ts';
 
 export interface QuestionRow {
@@ -49,65 +49,62 @@ export class QuestionRepo {
     this.db = db;
   }
 
-  getRow(id: number): QuestionRow | undefined {
-    return this.db.get<QuestionRow>('SELECT * FROM questions WHERE id = ?', id);
+  getRow(id: number, q: Queryable = this.db): Promise<QuestionRow | undefined> {
+    return q.get<QuestionRow>('SELECT * FROM questions WHERE id = $1', id);
   }
 
-  list(regionId?: string): AdminQuestion[] {
+  async list(regionId?: string): Promise<AdminQuestion[]> {
     const rows = regionId
-      ? this.db.all<QuestionRow>('SELECT * FROM questions WHERE region_id = ? ORDER BY id', regionId)
-      : this.db.all<QuestionRow>(
+      ? await this.db.all<QuestionRow>('SELECT * FROM questions WHERE region_id = $1 ORDER BY id', regionId)
+      : await this.db.all<QuestionRow>(
           'SELECT q.* FROM questions q JOIN regions r ON r.id = q.region_id ORDER BY r.sort_order, q.id',
         );
     return rows.map(toAdminQuestion);
   }
 
-  get(id: number): AdminQuestion {
-    const row = this.getRow(id);
+  async get(id: number): Promise<AdminQuestion> {
+    const row = await this.getRow(id);
     if (!row) throw new GameError('Питання не знайдено', 404);
     return toAdminQuestion(row);
   }
 
-  countsByRegion(): RegionQuestionCount[] {
-    return this.db.all<RegionQuestionCount>(
-      `SELECT r.id AS regionId, r.name AS name, COUNT(q.id) AS count
+  countsByRegion(q: Queryable = this.db): Promise<RegionQuestionCount[]> {
+    return q.all<RegionQuestionCount>(
+      `SELECT r.id AS "regionId", r.name AS name, COUNT(q.id)::int AS count
        FROM regions r LEFT JOIN questions q ON q.region_id = r.id
        GROUP BY r.id ORDER BY r.sort_order`,
     );
   }
 
-  create(input: QuestionInput, now = Date.now()): AdminQuestion {
-    this.assertRegion(input.regionId);
+  async create(input: QuestionInput, now = Date.now()): Promise<AdminQuestion> {
+    await this.assertRegion(input.regionId);
     const v = columnValues(input);
-    const { lastId } = this.db.run(
+    const row = await this.db.get<QuestionRow>(
       `INSERT INTO questions (region_id, type, prompt, options, correct_index, accepted_answers, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      input.regionId, input.type, input.prompt, v.options, v.correctIndex, v.acceptedAnswers, now, now,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
+      input.regionId, input.type, input.prompt, v.options, v.correctIndex, v.acceptedAnswers, now,
     );
-    return this.get(lastId);
+    return toAdminQuestion(row!);
   }
 
-  update(id: number, input: QuestionInput, now = Date.now()): AdminQuestion {
-    this.assertRegion(input.regionId);
+  async update(id: number, input: QuestionInput, now = Date.now()): Promise<AdminQuestion> {
+    await this.assertRegion(input.regionId);
     const v = columnValues(input);
-    const { changes } = this.db.run(
-      `UPDATE questions SET region_id = ?, type = ?, prompt = ?, options = ?, correct_index = ?,
-         accepted_answers = ?, updated_at = ? WHERE id = ?`,
+    const row = await this.db.get<QuestionRow>(
+      `UPDATE questions SET region_id = $1, type = $2, prompt = $3, options = $4, correct_index = $5,
+         accepted_answers = $6, updated_at = $7 WHERE id = $8 RETURNING *`,
       input.regionId, input.type, input.prompt, v.options, v.correctIndex, v.acceptedAnswers, now, id,
     );
-    if (!changes) throw new GameError('Питання не знайдено', 404);
-    return this.get(id);
+    if (!row) throw new GameError('Питання не знайдено', 404);
+    return toAdminQuestion(row);
   }
 
-  delete(id: number): void {
-    const { changes } = this.db.run('DELETE FROM questions WHERE id = ?', id);
-    if (!changes) throw new GameError('Питання не знайдено', 404);
+  async delete(id: number): Promise<void> {
+    if (!(await this.db.run('DELETE FROM questions WHERE id = $1', id))) throw new GameError('Питання не знайдено', 404);
   }
 
-  private assertRegion(regionId: string): void {
-    if (!this.db.get('SELECT 1 FROM regions WHERE id = ?', regionId)) {
-      throw new GameError('Невідомий регіон', 400);
-    }
+  private async assertRegion(regionId: string): Promise<void> {
+    if (!(await this.db.get('SELECT 1 FROM regions WHERE id = $1', regionId))) throw new GameError('Невідомий регіон', 400);
   }
 }
 

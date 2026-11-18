@@ -22,7 +22,7 @@ const once = <T>(socket: Client, event: keyof ServerToClientEvents) =>
 
 describe('HTTP + Socket.io end-to-end', () => {
   const config = { ...loadConfig({ ADMIN_PASSWORD: 'secret' }), port: 0 };
-  const { server, io, game } = createAppServer({ db: freshDb(), config });
+  let app: ReturnType<typeof createAppServer>;
   let base = '';
   const sockets: Client[] = [];
   const client = (auth: Record<string, string> = {}) => {
@@ -32,12 +32,13 @@ describe('HTTP + Socket.io end-to-end', () => {
   };
 
   before(async () => {
-    await new Promise<void>((r) => server.listen(0, r));
-    base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    app = createAppServer({ db: await freshDb(), config });
+    await new Promise<void>((r) => app.server.listen(0, r));
+    base = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   });
   after(() => {
     sockets.forEach((s) => s.disconnect());
-    io.close();
+    app.io.close();
   });
 
   it('runs a full game: login → create room → join → start → answer → force end', async () => {
@@ -88,7 +89,7 @@ describe('HTTP + Socket.io end-to-end', () => {
     const q = await call<{ id: number; options: string[] | null }>(player2, 'region:open', { regionId: 'lviv' });
     const progress = once<{ correctAnswers: number }[]>(admin, 'admin:progress');
     const res = await call<{ correct: boolean }>(player2, 'region:answer', {
-      regionId: 'lviv', questionId: q.id, answer: answerFor(game.questions, q as never, true),
+      regionId: 'lviv', questionId: q.id, answer: await answerFor(app.game.questions, q as never, true),
     });
     assert.equal(res.correct, true);
     assert.equal((await progress)[0]!.correctAnswers, 1);

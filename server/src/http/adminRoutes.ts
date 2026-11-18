@@ -40,39 +40,39 @@ export function adminRouter(deps: { game: GameService; questions: QuestionRepo; 
   r.use(auth.requireAdmin);
 
   // ----- questions CRUD -----
-  r.get('/questions', (req, res) => {
+  r.get('/questions', async (req, res) => {
     const regionId = typeof req.query.regionId === 'string' ? req.query.regionId : undefined;
-    res.json(questions.list(regionId));
+    res.json(await questions.list(regionId));
   });
 
-  r.get('/questions/counts', (_req, res) => {
-    res.json(questions.countsByRegion());
+  r.get('/questions/counts', async (_req, res) => {
+    res.json(await questions.countsByRegion());
   });
 
-  r.get('/questions/:id', (req, res) => {
-    res.json(questions.get(idParamSchema.parse(req.params.id)));
+  r.get('/questions/:id', async (req, res) => {
+    res.json(await questions.get(idParamSchema.parse(req.params.id)));
   });
 
-  r.post('/questions', (req, res) => {
-    res.status(201).json(questions.create(questionInputSchema.parse(req.body)));
+  r.post('/questions', async (req, res) => {
+    res.status(201).json(await questions.create(questionInputSchema.parse(req.body)));
   });
 
-  r.put('/questions/:id', (req, res) => {
-    res.json(questions.update(idParamSchema.parse(req.params.id), questionInputSchema.parse(req.body)));
+  r.put('/questions/:id', async (req, res) => {
+    res.json(await questions.update(idParamSchema.parse(req.params.id), questionInputSchema.parse(req.body)));
   });
 
-  r.delete('/questions/:id', (req, res) => {
-    questions.delete(idParamSchema.parse(req.params.id));
+  r.delete('/questions/:id', async (req, res) => {
+    await questions.delete(idParamSchema.parse(req.params.id));
     res.status(204).end();
   });
 
   // ----- game sessions -----
-  r.get('/sessions', (_req, res) => {
-    res.json(game.listSessions());
+  r.get('/sessions', async (_req, res) => {
+    res.json(await game.listSessions());
   });
 
   r.post('/sessions', async (_req, res) => {
-    const session = game.createSession();
+    const session = await game.createSession();
     const joinUrl = `${publicUrl}/join/${session.room_code}`;
     const qrCode = await QRCode.toDataURL(joinUrl, { width: 512, margin: 2 });
     const body: CreatedSession = { session: game.sessionInfo(session), joinUrl, qrCode };

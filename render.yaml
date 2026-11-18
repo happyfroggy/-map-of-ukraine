@@ -1,0 +1,22 @@
+# Render Blueprint — free web service. The database lives on Neon (free Postgres).
+# Render dashboard → New → Blueprint → pick this repo. It will ask for the two `sync: false` values.
+services:
+  - type: web
+    name: map-of-ukraine
+    runtime: node
+    plan: free
+    # Dev dependencies (Vite, TypeScript) are needed to build the client.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: ADMIN_PASSWORD
+        sync: false # you type it in the dashboard
+      - key: DATABASE_URL
+        sync: false # Neon connection string: postgresql://…?sslmode=require
+      - key: TOKEN_SECRET
+        generateValue: true # keeps admins logged in across restarts
+      # PUBLIC_URL defaults to Render's RENDER_EXTERNAL_URL; set it only for a custom domain.
