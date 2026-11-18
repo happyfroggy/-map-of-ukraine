@@ -1,0 +1,10 @@
+{
+  "name": "map-of-ukraine",
+  "private": true,
+  "workspaces": ["server"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "test": "npm test -w server",
+    "typecheck": "npm run typecheck -w server"
+  }
+}
