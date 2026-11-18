@@ -14,12 +14,11 @@ type Result<E extends Event> = Parameters<ClientToServerEvents[E]>[1] extends Ac
 /** Emits an event and resolves with the server's ack data (rejects with its error message). */
 export function request<E extends Event>(socket: GameSocket, event: E, payload: Payload<E>): Promise<Result<E>> {
   return new Promise((resolve, reject) => {
-    const emit = socket.timeout(10_000).emit as unknown as (
-      e: E,
-      p: Payload<E>,
-      cb: (err: Error | null, res: AckResponse<Result<E>>) => void,
-    ) => void;
-    emit(event, payload, (err, res) => {
+    // Call emit as a method — detaching it loses `this`.
+    const timed = socket.timeout(10_000) as unknown as {
+      emit(e: E, p: Payload<E>, cb: (err: Error | null, res: AckResponse<Result<E>>) => void): void;
+    };
+    timed.emit(event, payload, (err, res) => {
       if (err) reject(new Error('Сервер не відповідає. Перевірте з’єднання.'));
       else if (res.ok) resolve(res.data);
       else reject(new Error(res.error));

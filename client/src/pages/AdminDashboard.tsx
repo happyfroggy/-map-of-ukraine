@@ -101,7 +101,22 @@ function RoomControl({ room, onClose }: { room: CreatedSession; onClose: () => v
     }
   }
 
-  if (!snap) return <Spinner label="Підключення до кімнати…" />;
+  if (!snap) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col gap-4 py-10">
+        {error ? (
+          <>
+            <ErrorNote>{error}</ErrorNote>
+            <button className="btn-ghost" onClick={onClose}>
+              Закрити кімнату
+            </button>
+          </>
+        ) : (
+          <Spinner label="Підключення до кімнати…" />
+        )}
+      </div>
+    );
+  }
   const { players, totalRegions } = snap;
   const finishedCount = players.filter((p) => p.finishedAt).length;
 
