@@ -17,8 +17,14 @@ export interface PublicQuestion {
   prompt: string;
   /** 4 options for 'choice', null for 'text'. */
   options: string[] | null;
-  /** 1-based position within the region (1, 2 or the 3rd tie-breaker). */
+  /** 1-based position within the current round. */
   number: number;
+  /** 1 = first visit, 2+ = returning to a wrongly explored region. */
+  round: number;
+  /** Max questions in this round (3 first time, 4 on a retry). */
+  total: number;
+  /** Correct answers needed to explore the region in this round. */
+  toWin: number;
 }
 
 export interface QuestionInput {

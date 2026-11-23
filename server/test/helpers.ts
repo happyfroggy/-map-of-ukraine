@@ -14,6 +14,10 @@ export async function freshDb() {
 /** Test-only cheat: the right (or a wrong) answer for a question. */
 export async function answerFor(repo: QuestionRepo, q: PublicQuestion, correct: boolean): Promise<number | string> {
   const row = (await repo.getRow(q.id))!;
-  if (row.type === 'choice') return correct ? row.correct_index! : (row.correct_index! + 1) % 4;
+  if (row.type === 'choice') {
+    // Options are shuffled per player: find where the correct one is displayed.
+    const pos = q.options!.indexOf(parseJsonArray(row.options)![row.correct_index!]!);
+    return correct ? pos : (pos + 1) % 4;
+  }
   return correct ? parseJsonArray(row.accepted_answers)![0]! : 'definitely wrong';
 }

@@ -12,7 +12,7 @@ export function Home() {
     <CenteredPage>
       <div className="flex flex-col items-center gap-3 text-center">
         <Brand />
-        <p className="text-slate-600">Інтерактивний квіз з історії, мови та літератури. Завойовуйте регіони, відповідаючи на питання!</p>
+        <p className="text-slate-600">Інтерактивний квіз з історії, мови та літератури. Досліджуйте регіони, відповідаючи на питання!</p>
       </div>
 
       <form

@@ -60,7 +60,9 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
   }
 
   const finished = result && result.regionStatus !== 'in_progress';
-  const tieBreaker = question.number === 3;
+  const retry = question.round > 1;
+  const tieBreaker = !retry && question.number === 3;
+  const correctSoFar = history.filter(Boolean).length;
 
   return (
     <div
@@ -77,13 +79,14 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
           <div>
             <p className="text-xs font-semibold tracking-wide text-ua-blue uppercase">{regionName}</p>
             <p className="mt-0.5 text-sm text-slate-500">
-              Питання {question.number}
+              Питання {question.number} з {question.total}
               {tieBreaker && ' · вирішальне'}
+              {retry && ' · повторна спроба'}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5" aria-label="Відповіді в цьому регіоні">
-              {[0, 1, 2].map((i) => (
+              {Array.from({ length: question.total }, (_, i) => (
                 <span
                   key={i}
                   className={`h-2.5 w-2.5 rounded-full ${
@@ -99,6 +102,12 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
             </button>
           </div>
         </div>
+
+        {retry && question.number === 1 && !result && (
+          <p className="mb-4 rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm text-blue-900 ring-1 ring-blue-200">
+            Друга спроба дослідити регіон: потрібно <b>{question.toWin} правильні відповіді з {question.total}</b>.
+          </p>
+        )}
 
         <h2 id="question-title" className="mb-5 text-lg leading-snug font-bold text-slate-900 sm:text-xl">
           {question.prompt}
@@ -174,13 +183,24 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
                 </p>
               )}
             </div>
-            {finished && (
-              <p className={`text-center text-lg font-extrabold ${result.regionStatus === 'green' ? 'text-green-600' : 'text-red-600'}`}>
-                {result.regionStatus === 'green' ? 'Регіон завойовано!' : 'Регіон втрачено'}
-              </p>
+            {finished && result.regionStatus === 'green' && (
+              <p className="text-center text-lg font-extrabold text-green-600">Регіон досліджено!</p>
             )}
-            {!finished && history.length === 2 && (
+            {finished && result.regionStatus === 'red' && (
+              <div className="text-center">
+                <p className="text-lg font-extrabold text-blue-600">Регіон досліджено неправильно</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Поверніться до нього пізніше: щоб дослідити, потрібно 3 правильні відповіді з 4.
+                </p>
+              </div>
+            )}
+            {!finished && !retry && history.length === 2 && (
               <p className="text-center text-sm font-medium text-amber-700">Рахунок 1:1 — далі вирішальне питання</p>
+            )}
+            {!finished && retry && (
+              <p className="text-center text-sm font-medium text-slate-600">
+                Правильних: {correctSoFar} з {question.toWin} потрібних
+              </p>
             )}
             <button ref={nextRef} type="button" className={finished ? 'btn-ghost' : 'btn-primary'} onClick={next}>
               {result.nextQuestion ? 'Наступне питання →' : 'До мапи'}

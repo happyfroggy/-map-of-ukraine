@@ -31,9 +31,9 @@ describe('GameService', () => {
     return results;
   }
 
-  it('has 25 regions, each with 3 seeded questions', async () => {
+  it('has 25 regions, each with 4 seeded questions', async () => {
     assert.equal(await game.regionCount(), 25);
-    assert.ok((await game.questions.countsByRegion()).every((r) => r.count === 3));
+    assert.ok((await game.questions.countsByRegion()).every((r) => r.count === 4));
   });
 
   it('rejects gameplay before start and joining after start', async () => {
@@ -54,7 +54,7 @@ describe('GameService', () => {
     assert.equal(first!.nextQuestion?.number, 2);
     assert.equal(second!.regionStatus, 'green');
     assert.equal(second!.nextQuestion, null);
-    await assert.rejects(game.openRegion(alice, 'lviv'), /уже завершено/);
+    await assert.rejects(game.openRegion(alice, 'lviv'), /уже досліджено/);
   });
 
   it('2 wrong → red', async () => {
@@ -62,6 +62,58 @@ describe('GameService', () => {
     const results = await play(alice, 'lviv', [false, false]);
     assert.equal(results.at(-1)!.regionStatus, 'red');
     assert.ok(results.at(-1)!.correctAnswer.length > 0);
+  });
+
+  it('a red region can be retried: 3 correct out of 4 explores it', async () => {
+    await game.startSession(sessionId);
+    await play(alice, 'lviv', [false, false]);
+    const retry = await play(alice, 'lviv', [true, false, true, true]);
+    assert.equal(retry[0]!.nextQuestion?.round, 2);
+    assert.equal(retry[0]!.nextQuestion?.total, 4);
+    assert.equal(retry[2]!.regionStatus, 'in_progress', '2 of 3 is not enough yet');
+    assert.equal(retry[3]!.regionStatus, 'green');
+    const [row] = (await game.progress(sessionId)).filter((p) => p.id === alice);
+    assert.equal(row!.greenRegions, 1);
+    assert.equal(row!.redRegions, 0);
+  });
+
+  it('a retry fails as soon as 2 answers are wrong, and can be retried again', async () => {
+    await game.startSession(sessionId);
+    await play(alice, 'odesa', [false, false]);
+    const retry = await play(alice, 'odesa', [true, false, false]);
+    assert.equal(retry[2]!.regionStatus, 'red');
+    const third = await game.openRegion(alice, 'odesa');
+    assert.equal(third.round, 3);
+    assert.equal(third.number, 1);
+  });
+
+  it('a retry uses all 4 region questions, including the unseen one', async () => {
+    await game.startSession(sessionId);
+    await play(alice, 'kyiv', [false, false]);
+    const seen = new Set<number>();
+    let q = await game.openRegion(alice, 'kyiv');
+    for (;;) {
+      seen.add(q.id);
+      const r = await game.answer(alice, 'kyiv', q.id, await answerFor(game.questions, q, true));
+      if (!r.nextQuestion) break;
+      q = r.nextQuestion;
+    }
+    assert.equal(seen.size, 3, 'stopped after 3 correct');
+    const regionIds = (await game.questions.list('kyiv')).map((x) => x.id);
+    assert.ok([...seen].every((id) => regionIds.includes(id)));
+  });
+
+  it('options are shown in a per-player order that stays stable on re-open', async () => {
+    await game.startSession(sessionId);
+    const choiceRegion = (await game.questions.list()).filter((x) => x.type === 'choice').map((x) => x.regionId);
+    const regionId = choiceRegion[0]!;
+    const first = await game.openRegion(alice, regionId);
+    const again = await game.openRegion(alice, regionId);
+    assert.deepEqual(again.options, first.options);
+    if (first.options) {
+      const stored = (await game.questions.getRow(first.id))!;
+      assert.deepEqual([...first.options].sort(), [...JSON.parse(stored.options!)].sort());
+    }
   });
 
   it('1:1 → tie-breaker decides', async () => {
@@ -110,8 +162,9 @@ describe('GameService', () => {
     }
     assert.equal(await game.allPlayersFinished(sessionId), false);
 
+    // Bob gets every region wrong: not finished until he explores them all.
     for (const r of regions) await play(bob, r.id, [false, false], t0);
-    assert.equal(await game.allPlayersFinished(sessionId), true);
+    assert.equal(await game.allPlayersFinished(sessionId), false);
 
     const { results, ended } = await game.endSession(sessionId, t0 + 120_000);
     assert.equal(ended, true);
@@ -119,7 +172,9 @@ describe('GameService', () => {
     assert.equal(results[0]!.correctAnswers, 50);
     assert.equal(results[0]!.greenRegions, 25);
     assert.equal(results[0]!.timeMs, 60_000);
+    assert.equal(results[0]!.finished, true);
     assert.equal(results[1]!.redRegions, 25);
+    assert.equal(results[1]!.timeMs, 120_000, 'unfinished: time until the game ended');
     assert.equal((await game.getSessionById(sessionId)).status, 'finished');
     assert.equal((await game.endSession(sessionId)).ended, false, 'second end is a no-op');
   });
@@ -133,8 +188,9 @@ describe('GameService', () => {
   });
 
   it('refuses to start when a region lacks questions', async () => {
-    const [q] = await game.questions.list('crimea');
-    await game.questions.delete(q!.id);
+    const [q1, q2] = await game.questions.list('crimea');
+    await game.questions.delete(q1!.id);
+    await game.questions.delete(q2!.id); // 2 of 4 left — fewer than the 3 a first visit needs
     await assert.rejects(game.startSession(sessionId), /Автономна Республіка Крим/);
   });
 });

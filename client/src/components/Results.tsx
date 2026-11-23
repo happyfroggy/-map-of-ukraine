@@ -21,7 +21,7 @@ export function Podium({ results }: { results: ResultRow[] }) {
                 <div className="text-3xl sm:text-4xl">{medal}</div>
                 <div className="mt-1 line-clamp-2 text-sm font-bold text-slate-900 sm:text-base">{fullName(r)}</div>
                 <div className="text-xs text-slate-500">
-                  {r.correctAnswers} ✓ · {formatDuration(r.timeMs)}
+                  {r.greenRegions} досліджено · {formatDuration(r.timeMs)}
                 </div>
               </div>
             ) : (
@@ -40,13 +40,14 @@ export function Podium({ results }: { results: ResultRow[] }) {
 export function Leaderboard({ results, highlightId }: { results: ResultRow[]; highlightId?: number }) {
   return (
     <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-      <table className="w-full min-w-[480px] text-sm">
+      <table className="w-full min-w-[560px] text-sm">
         <thead className="bg-slate-50 text-left text-xs tracking-wide text-slate-500 uppercase">
           <tr>
             <th className="px-4 py-3 font-semibold">Місце</th>
             <th className="px-4 py-3 font-semibold">Учасник</th>
-            <th className="px-4 py-3 text-right font-semibold">Правильних</th>
-            <th className="px-4 py-3 text-right font-semibold">Регіонів</th>
+            <th className="px-4 py-3 text-right font-semibold">Досліджено</th>
+            <th className="px-4 py-3 text-right font-semibold">Неправильно</th>
+            <th className="px-4 py-3 text-right font-semibold">Правильних відповідей</th>
             <th className="px-4 py-3 text-right font-semibold">Час</th>
           </tr>
         </thead>
@@ -58,22 +59,19 @@ export function Leaderboard({ results, highlightId }: { results: ResultRow[]; hi
                 {fullName(r)}
                 {r.id === highlightId && <span className="ml-2 text-xs font-medium text-ua-blue">(ви)</span>}
               </td>
+              <td className="px-4 py-3 text-right font-bold text-green-600 tabular-nums">{r.greenRegions}</td>
+              <td className="px-4 py-3 text-right text-blue-600 tabular-nums">{r.redRegions}</td>
               <td className="px-4 py-3 text-right tabular-nums">{r.correctAnswers}</td>
               <td className="px-4 py-3 text-right tabular-nums">
-                <span className="text-green-600">{r.greenRegions}</span>
-                <span className="text-slate-300"> / </span>
-                <span className="text-red-500">{r.redRegions}</span>
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums">
                 {formatDuration(r.timeMs)}
-                {!r.finished && <span className="ml-1 text-xs text-slate-400" title="Не завершив усі регіони">*</span>}
+                {!r.finished && <span className="ml-1 text-xs text-slate-400" title="Не дослідив усі регіони">*</span>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       {results.some((r) => !r.finished) && (
-        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">* не завершив усі регіони до кінця гри</p>
+        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">* не дослідив усі регіони до кінця гри — час рахується до завершення гри</p>
       )}
     </div>
   );

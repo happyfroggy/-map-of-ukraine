@@ -5,22 +5,31 @@ import { DECOR_SHAPES, MAP_HEIGHT, MAP_WIDTH, REGION_SHAPES, type RegionShape } 
 export interface UkraineMapProps {
   statuses: Record<string, RegionStatus>;
   names: Record<string, string>;
-  /** Called with a region id when a not-yet-resolved region is clicked. */
+  /** Called with a region id when a not-yet-explored region is clicked (blue ones can be retried). */
   onSelect?: (regionId: string) => void;
   disabled?: boolean;
 }
 
 const COLORS = {
-  neutral: '#dbe4f0',
-  neutralHover: '#b7cdee',
-  in_progress: '#fcd34d',
+  neutral: '#ffffff', // не досліджено
+  neutralHover: '#e0ecff',
+  in_progress: '#fcd34d', // не допройдено
   in_progressHover: '#fbbf24',
-  green: '#22c55e',
-  red: '#ef4444',
-  decor: '#c5ceda',
-  border: '#ffffff',
-  hoverBorder: '#0057b7',
+  green: '#22c55e', // досліджено
+  red: '#3b82f6', // неправильно досліджено (status 'red' in the data model)
+  redHover: '#2563eb',
+  decor: '#cbd5e1',
+  border: '#94a3b8',
+  hoverBorder: '#0f172a',
 };
+
+/** Legend / tooltip wording for each state. */
+export const STATUS_LABELS = {
+  none: 'Не досліджено',
+  in_progress: 'Не допройдено',
+  red: 'Неправильно досліджено',
+  green: 'Досліджено',
+} as const;
 const FLASH_MS = 700;
 const LABEL_MIN_WIDTH = 560; // CSS px; below this labels would overlap
 
@@ -54,7 +63,10 @@ function hitTest(x: number, y: number): string | null {
   return regions.find((r) => hitCtx!.isPointInPath(r.path, x, y, 'evenodd'))?.id ?? null;
 }
 
+/** Finished a round (green or blue) — used for the colour-change flash. */
 const isResolved = (s: RegionStatus | undefined) => s === 'green' || s === 'red';
+/** Everything except explored regions can be opened; blue ones start a retry. */
+const isClickable = (s: RegionStatus | undefined) => s !== 'green';
 
 export function UkraineMap({ statuses, names, onSelect, disabled = false }: UkraineMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -85,10 +97,10 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
 
     for (const r of regions) {
       const status = statuses[r.id];
-      const hot = !disabled && hovered.current === r.id && !isResolved(status);
+      const hot = !disabled && hovered.current === r.id && isClickable(status);
       ctx.fillStyle =
         status === 'green' ? COLORS.green
-        : status === 'red' ? COLORS.red
+        : status === 'red' ? (hot ? COLORS.redHover : COLORS.red)
         : status === 'in_progress' ? (hot ? COLORS.in_progressHover : COLORS.in_progress)
         : hot ? COLORS.neutralHover
         : COLORS.neutral;
@@ -107,7 +119,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
     }
 
     ctx.strokeStyle = COLORS.border;
-    ctx.lineWidth = 1.4 / s;
+    ctx.lineWidth = 1 / s;
     for (const r of regions) ctx.stroke(r.path);
 
     ctx.fillStyle = COLORS.decor;
@@ -117,7 +129,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
     }
 
     const hot = hovered.current && !disabled ? regions.find((r) => r.id === hovered.current) : undefined;
-    if (hot && !isResolved(statuses[hot.id])) {
+    if (hot && isClickable(statuses[hot.id])) {
       ctx.strokeStyle = COLORS.hoverBorder;
       ctx.lineWidth = 2.5 / s;
       ctx.stroke(hot.path);
@@ -206,7 +218,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
       hovered.current = id;
       scheduleDraw();
     }
-    const clickable = id && !disabled && !isResolved(statuses[id]);
+    const clickable = id && !disabled && isClickable(statuses[id]);
     canvasRef.current!.style.cursor = clickable ? 'pointer' : 'default';
     setTooltip(id ? { id, x: p.cssX, y: p.cssY } : null);
   };
@@ -221,7 +233,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
     if (disabled || !onSelect) return;
     const p = toMap(e);
     const id = hitTest(p.x, p.y);
-    if (id && !isResolved(statuses[id])) onSelect(id);
+    if (id && isClickable(statuses[id])) onSelect(id);
   };
 
   const tipStatus = tooltip ? statuses[tooltip.id] : undefined;
@@ -242,9 +254,9 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
           style={{ left: tooltip.x, top: tooltip.y - 10 }}
         >
           {names[tooltip.id] ?? tooltip.id}
-          {tipStatus === 'green' && ' · завойовано'}
-          {tipStatus === 'red' && ' · втрачено'}
-          {tipStatus === 'in_progress' && ' · в процесі'}
+          {tipStatus === 'green' && ` · ${STATUS_LABELS.green.toLowerCase()}`}
+          {tipStatus === 'red' && ` · ${STATUS_LABELS.red.toLowerCase()} — спробуйте ще раз`}
+          {tipStatus === 'in_progress' && ` · ${STATUS_LABELS.in_progress.toLowerCase()}`}
         </div>
       )}
       {/* Accessible fallback: the same regions as buttons for keyboard / screen-reader users. */}
@@ -253,7 +265,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
           <li key={r.id}>
             <button
               type="button"
-              disabled={disabled || isResolved(statuses[r.id])}
+              disabled={disabled || !isClickable(statuses[r.id])}
               onClick={() => onSelect?.(r.id)}
             >
               {names[r.id] ?? r.id}
@@ -267,16 +279,16 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
 
 export function MapLegend() {
   const items = [
-    [COLORS.neutral, 'Не відкрито'],
-    [COLORS.in_progress, 'В процесі'],
-    [COLORS.green, 'Завойовано'],
-    [COLORS.red, 'Втрачено'],
+    [COLORS.neutral, STATUS_LABELS.none],
+    [COLORS.in_progress, STATUS_LABELS.in_progress],
+    [COLORS.red, STATUS_LABELS.red],
+    [COLORS.green, STATUS_LABELS.green],
   ] as const;
   return (
     <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-600">
       {items.map(([color, label]) => (
         <span key={label} className="inline-flex items-center gap-1.5">
-          <span className="h-3 w-3 rounded-sm ring-1 ring-slate-300" style={{ background: color }} />
+          <span className="h-3 w-3 rounded-sm ring-1 ring-slate-400" style={{ background: color }} />
           {label}
         </span>
       ))}

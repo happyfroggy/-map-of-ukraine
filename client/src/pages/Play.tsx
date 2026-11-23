@@ -8,7 +8,7 @@ import { errorMessage, formatDuration, useNow } from '../lib/format.ts';
 import { createSocket, request, type GameSocket } from '../lib/socket.ts';
 import { playerTokenStore } from '../lib/storage.ts';
 import { useRegions } from '../lib/useRegions.ts';
-import { MapLegend, UkraineMap } from '../map/UkraineMap.tsx';
+import { MapLegend, STATUS_LABELS, UkraineMap } from '../map/UkraineMap.tsx';
 
 /** Owns the player's socket: resumes by token on every (re)connect and tracks room events. */
 function usePlayerGame() {
@@ -84,7 +84,7 @@ export function Play() {
       setError('');
       try {
         const question = await request(socket, 'region:open', { regionId });
-        setState((s) => s && { ...s, regions: { ...s.regions, [regionId]: s.regions[regionId] ?? 'in_progress' } });
+        setState((s) => s && { ...s, regions: { ...s.regions, [regionId]: 'in_progress' } }); // new visit or retry
         setOpen({ regionId, question });
       } catch (err) {
         setError(errorMessage(err));
@@ -192,7 +192,6 @@ export function Play() {
   }
 
   // ----- map -----
-  const done = counts.green + counts.red;
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -203,29 +202,31 @@ export function Play() {
         <div className="flex items-center gap-2 text-sm sm:gap-3">
           <span className="hidden font-medium text-slate-600 sm:inline">{fullName(me)}</span>
           <Stat label="Час" value={formatDuration(elapsed)} />
-          <Stat label="✓" value={counts.green} className="text-green-600" />
-          <Stat label="✗" value={counts.red} className="text-red-500" />
-          <Stat label="Пройдено" value={`${done}/${total}`} />
+          <Stat label="Досліджено" value={`${counts.green}/${total}`} className="text-green-600" />
+          {counts.red > 0 && <Stat label="Неправильно" value={counts.red} className="text-blue-600" />}
         </div>
       </header>
 
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
         <div className="flex h-full">
           <div className="bg-green-500 transition-all" style={{ width: `${(counts.green / total) * 100}%` }} />
-          <div className="bg-red-500 transition-all" style={{ width: `${(counts.red / total) * 100}%` }} />
+          <div className="bg-blue-500 transition-all" style={{ width: `${(counts.red / total) * 100}%` }} />
         </div>
       </div>
 
       {state.finishedAt ? (
         <div className="rounded-2xl bg-ua-blue px-4 py-3 text-center font-semibold text-white">
-          Ви пройшли всі регіони за {formatDuration(elapsed)}! Очікуємо інших учасників…
+          Ви дослідили всі регіони за {formatDuration(elapsed)}! Очікуємо інших учасників…
         </div>
       ) : (
-        <p className="text-center text-sm text-slate-500">Оберіть регіон на мапі, щоб відповісти на його питання</p>
+        <p className="text-center text-sm text-slate-500">
+          Оберіть регіон на мапі, щоб відповісти на його питання.
+          {counts.red > 0 && ` Сині регіони (${STATUS_LABELS.red.toLowerCase()}) можна пройти ще раз — потрібно 3 правильні з 4.`}
+        </p>
       )}
       <ErrorNote>{error}</ErrorNote>
 
-      <div className="card p-2 sm:p-4">
+      <div className="card bg-sky-50 p-2 sm:p-4">
         <UkraineMap statuses={state.regions} names={names} onSelect={selectRegion} disabled={opening || !!state.finishedAt} />
       </div>
       <MapLegend />

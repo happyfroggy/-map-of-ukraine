@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS answers (
   answered_at   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_answers_attempt ON answers(attempt_id);
+
+CREATE TABLE IF NOT EXISTS app_meta (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);
+
+-- Migrations (idempotent, safe to run on every start) --------------------
+-- v2: returning to a wrongly explored region starts a new round on the same attempt row.
+ALTER TABLE region_attempts ADD COLUMN IF NOT EXISTS round INTEGER NOT NULL DEFAULT 1;
 `;
 
 export type SqlParam = string | number | boolean | null;

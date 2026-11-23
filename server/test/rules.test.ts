@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { isAnswerCorrect, normalizeAnswer, rankResults, resolveRegionStatus } from '../src/domain/rules.ts';
+import { RETRY_ROUND, isAnswerCorrect, normalizeAnswer, optionOrder, rankResults, resolveRegionStatus } from '../src/domain/rules.ts';
 
 describe('resolveRegionStatus (early stopping)', () => {
   it('2 correct → green, 2 wrong → red', () => {
@@ -15,6 +15,28 @@ describe('resolveRegionStatus (early stopping)', () => {
   it('single answer keeps the region open', () => {
     assert.equal(resolveRegionStatus(1, 0), 'in_progress');
     assert.equal(resolveRegionStatus(0, 1), 'in_progress');
+  });
+});
+
+describe('retry round (3 correct out of 4)', () => {
+  it('3 correct → green, even after one mistake', () => {
+    assert.equal(resolveRegionStatus(3, 0, RETRY_ROUND), 'green');
+    assert.equal(resolveRegionStatus(3, 1, RETRY_ROUND), 'green');
+    assert.equal(resolveRegionStatus(2, 1, RETRY_ROUND), 'in_progress');
+  });
+  it('2 mistakes → red immediately (3 of 4 no longer possible)', () => {
+    assert.equal(resolveRegionStatus(0, 2, RETRY_ROUND), 'red');
+    assert.equal(resolveRegionStatus(1, 2, RETRY_ROUND), 'red');
+    assert.equal(resolveRegionStatus(1, 1, RETRY_ROUND), 'in_progress');
+  });
+});
+
+describe('optionOrder', () => {
+  it('is a stable permutation that varies by seed', () => {
+    assert.deepEqual(optionOrder('a', 4), optionOrder('a', 4));
+    assert.deepEqual([...optionOrder('a', 4)].sort(), [0, 1, 2, 3]);
+    const distinct = new Set(Array.from({ length: 50 }, (_, i) => optionOrder(`seed-${i}`, 4).join('')));
+    assert.ok(distinct.size > 5, 'different players get different orders');
   });
 });
 
@@ -47,12 +69,12 @@ describe('choice answers', () => {
 });
 
 describe('rankResults', () => {
-  it('sorts by correct answers desc, then time asc; ties share a rank', () => {
+  it('sorts by explored regions desc, then time asc; ties share a rank', () => {
     const ranked = rankResults([
-      { id: 'slow', correctAnswers: 10, timeMs: 9000 },
-      { id: 'best', correctAnswers: 12, timeMs: 9999 },
-      { id: 'fast', correctAnswers: 10, timeMs: 5000 },
-      { id: 'tie', correctAnswers: 10, timeMs: 9000 },
+      { id: 'slow', greenRegions: 10, timeMs: 9000 },
+      { id: 'best', greenRegions: 12, timeMs: 9999 },
+      { id: 'fast', greenRegions: 10, timeMs: 5000 },
+      { id: 'tie', greenRegions: 10, timeMs: 9000 },
     ]);
     assert.deepEqual(ranked.map((r) => [r.id, r.rank]), [
       ['best', 1],

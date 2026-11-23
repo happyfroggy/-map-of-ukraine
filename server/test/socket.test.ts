@@ -55,7 +55,7 @@ describe('HTTP + Socket.io end-to-end', () => {
     assert.equal((await fetch(`${base}/api/admin/questions`)).status, 401);
     const auth = { authorization: `Bearer ${token}` };
     const questions = await (await fetch(`${base}/api/admin/questions`, { headers: auth })).json() as unknown[];
-    assert.equal(questions.length, 75);
+    assert.equal(questions.length, 100);
 
     // Create room with QR
     const created = await (await fetch(`${base}/api/admin/sessions`, { method: 'POST', headers: auth })).json() as {

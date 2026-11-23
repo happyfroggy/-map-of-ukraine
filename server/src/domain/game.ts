@@ -15,7 +15,7 @@ import type {
 import type { Database, Queryable } from '../db/database.ts';
 import { GameError } from './errors.ts';
 import { QuestionRepo, displayAnswer, parseJsonArray } from './questions.ts';
-import { QUESTIONS_PER_REGION, isAnswerCorrect, rankResults, resolveRegionStatus } from './rules.ts';
+import { QUESTIONS_PER_REGION, RETRY_ROUND, isAnswerCorrect, optionOrder, rankResults, resolveRegionStatus, roundRule } from './rules.ts';
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
 const ROOM_CODE_LENGTH = 6;
@@ -47,6 +47,8 @@ interface AttemptRow {
   correct_count: number;
   wrong_count: number;
   status: RegionStatus;
+  /** 1 = first visit; each return to a red region starts the next round. */
+  round: number;
   opened_at: number;
   resolved_at: number | null;
 }
@@ -203,14 +205,19 @@ export class GameService {
 
   // ---------- gameplay ----------
 
-  /** Opens a region for a player (or resumes it) and returns the current question. */
+  /**
+   * Opens a region for a player and returns the current question:
+   * a new region starts round 1, an unfinished one resumes, and a wrongly
+   * explored (red) one starts a retry round (3 correct out of 4).
+   */
   openRegion(playerId: number, regionId: string, now = Date.now()): Promise<PublicQuestion> {
     return this.db.tx(async (q) => {
       const player = await this.getPlayerById(playerId, q);
       await this.assertActive(player.session_id, q);
       if (!(await q.get('SELECT 1 FROM regions WHERE id = $1', regionId))) throw new GameError('Невідомий регіон');
 
-      let attempt = await this.getAttempt(playerId, regionId, q);
+      let attempt = await this.getAttempt(playerId, regionId, q, true);
+      if (attempt?.status === 'red') attempt = await this.startRetry(attempt, now, q);
       if (!attempt) {
         // Draw this player's questions for the region (random if the pool is larger than 3).
         const ids = (
@@ -226,10 +233,37 @@ export class GameService {
         // Re-read: a concurrent open may have inserted first.
         attempt = (await this.getAttempt(playerId, regionId, q))!;
       }
-      if (attempt.status !== 'in_progress') throw new GameError('Цей регіон уже завершено', 409);
+      if (attempt.status === 'green') throw new GameError('Цей регіон уже досліджено', 409);
       const index = attempt.correct_count + attempt.wrong_count;
-      return this.publicQuestion(questionIds(attempt)[index], index, q);
+      return this.publicQuestion(questionIds(attempt)[index], index, attempt, q);
     });
+  }
+
+  /** Resets a red attempt for the next round, preferring questions this player hasn't seen yet. */
+  private async startRetry(attempt: AttemptRow, now: number, q: Queryable): Promise<AttemptRow> {
+    const picked = (
+      await q.all<{ id: number }>(
+        `SELECT id FROM questions WHERE region_id = $1
+         ORDER BY (id IN (SELECT question_id FROM answers WHERE attempt_id = $2 AND question_id IS NOT NULL)), RANDOM()
+         LIMIT $3`,
+        attempt.region_id, attempt.id, RETRY_ROUND.questions,
+      )
+    ).map((r) => r.id);
+    if (picked.length < RETRY_ROUND.questions) {
+      throw new GameError(`Для повторної спроби в цьому регіоні потрібно щонайменше ${RETRY_ROUND.questions} питання`, 409);
+    }
+    // Unseen questions come first from the query — shuffle so the new one isn't always first.
+    for (let i = picked.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [picked[i], picked[j]] = [picked[j]!, picked[i]!];
+    }
+    return (await q.get<AttemptRow>(
+      `UPDATE region_attempts
+       SET round = round + 1, question_ids = $1, correct_count = 0, wrong_count = 0,
+           status = 'in_progress', opened_at = $2, resolved_at = NULL
+       WHERE id = $3 RETURNING *`,
+      JSON.stringify(picked), now, attempt.id,
+    ))!;
   }
 
   /** Checks an answer, applies the early-stopping rule and returns the outcome. */
@@ -240,7 +274,7 @@ export class GameService {
 
       const attempt = await this.getAttempt(playerId, regionId, q, true);
       if (!attempt) throw new GameError('Спершу відкрийте регіон');
-      if (attempt.status !== 'in_progress') throw new GameError('Цей регіон уже завершено', 409);
+      if (attempt.status !== 'in_progress') throw new GameError('Це питання вже неактуальне', 409);
 
       const ids = questionIds(attempt);
       const index = attempt.correct_count + attempt.wrong_count;
@@ -250,30 +284,37 @@ export class GameService {
       const question = await this.questions.getRow(questionId, q);
       if (!question) throw new GameError('Питання не знайдено (можливо, його видалено)', 409);
 
+      // Choice answers arrive as the displayed (per-player shuffled) position.
+      let answer = given;
+      if (question.type === 'choice') {
+        if (typeof given !== 'number') throw new GameError('Оберіть один із варіантів');
+        answer = this.choiceOrder(attempt, questionId)[given] ?? -1;
+      }
       const correct = isAnswerCorrect(
         { type: question.type, correctIndex: question.correct_index, acceptedAnswers: parseJsonArray(question.accepted_answers) },
-        given,
+        answer,
       );
       await q.run(
         'INSERT INTO answers (attempt_id, question_id, given_answer, is_correct, answered_at) VALUES ($1, $2, $3, $4, $5)',
-        attempt.id, questionId, String(given), correct, now,
+        attempt.id, questionId, String(answer), correct, now,
       );
 
       const correctCount = attempt.correct_count + (correct ? 1 : 0);
       const wrongCount = attempt.wrong_count + (correct ? 0 : 1);
-      const status = resolveRegionStatus(correctCount, wrongCount);
+      const status = resolveRegionStatus(correctCount, wrongCount, roundRule(attempt.round));
       await q.run(
         'UPDATE region_attempts SET correct_count = $1, wrong_count = $2, status = $3, resolved_at = $4 WHERE id = $5',
         correctCount, wrongCount, status, status === 'in_progress' ? null : now, attempt.id,
       );
 
+      // A player finishes once every region is explored (green); red ones can be retried.
       let playerFinished = false;
-      if (status !== 'in_progress') {
-        const resolved = (await q.get<{ n: number }>(
-          "SELECT COUNT(*)::int AS n FROM region_attempts WHERE player_id = $1 AND status <> 'in_progress'",
+      if (status === 'green') {
+        const explored = (await q.get<{ n: number }>(
+          "SELECT COUNT(*)::int AS n FROM region_attempts WHERE player_id = $1 AND status = 'green'",
           playerId,
         ))!.n;
-        if (resolved >= (await this.regionCount(q))) {
+        if (explored >= (await this.regionCount(q))) {
           await q.run('UPDATE players SET finished_at = $1 WHERE id = $2', now, playerId);
           playerFinished = true;
         }
@@ -283,7 +324,7 @@ export class GameService {
         correct,
         correctAnswer: displayAnswer(question),
         regionStatus: status,
-        nextQuestion: status === 'in_progress' ? await this.publicQuestion(ids[index + 1], index + 1, q) : null,
+        nextQuestion: status === 'in_progress' ? await this.publicQuestion(ids[index + 1], index + 1, attempt, q) : null,
         playerFinished,
       };
     });
@@ -303,12 +344,13 @@ export class GameService {
   async progress(sessionId: number, q: Queryable = this.db): Promise<PlayerProgress[]> {
     const rows = await q.all<{ id: number; first_name: string; last_name: string; finished_at: number | null; correct: number; green: number; red: number }>(
       `SELECT p.id, p.first_name, p.last_name, p.finished_at,
-              COALESCE(SUM(a.correct_count), 0)::int                    AS correct,
-              (COUNT(a.id) FILTER (WHERE a.status = 'green'))::int      AS green,
-              (COUNT(a.id) FILTER (WHERE a.status = 'red'))::int        AS red
-       FROM players p LEFT JOIN region_attempts a ON a.player_id = p.id
+              (SELECT COUNT(*)::int FROM answers an JOIN region_attempts a ON a.id = an.attempt_id
+                WHERE a.player_id = p.id AND an.is_correct)                                         AS correct,
+              (SELECT COUNT(*)::int FROM region_attempts a WHERE a.player_id = p.id AND a.status = 'green') AS green,
+              (SELECT COUNT(*)::int FROM region_attempts a WHERE a.player_id = p.id AND a.status = 'red')   AS red
+       FROM players p
        WHERE p.session_id = $1
-       GROUP BY p.id ORDER BY p.joined_at, p.id`,
+       ORDER BY p.joined_at, p.id`,
       sessionId,
     );
     return rows.map((r) => ({
@@ -376,16 +418,35 @@ export class GameService {
     );
   }
 
-  private async publicQuestion(id: number | undefined, index: number, q: Queryable): Promise<PublicQuestion> {
+  /** Per-player, per-round option order for a choice question (stable on re-open). */
+  private choiceOrder(attempt: Pick<AttemptRow, 'id' | 'round'>, questionId: number): number[] {
+    return optionOrder(`${attempt.id}:${attempt.round}:${questionId}`, 4);
+  }
+
+  private async publicQuestion(
+    id: number | undefined,
+    index: number,
+    attempt: Pick<AttemptRow, 'id' | 'round'>,
+    q: Queryable,
+  ): Promise<PublicQuestion> {
     const row = id === undefined ? undefined : await this.questions.getRow(id, q);
     if (!row) throw new GameError('Питання не знайдено (можливо, його видалено)', 409);
+    const rule = roundRule(attempt.round);
+    let options: string[] | null = null;
+    if (row.type === 'choice') {
+      const stored = parseJsonArray(row.options) ?? [];
+      options = this.choiceOrder(attempt, row.id).map((i) => stored[i]!);
+    }
     return {
       id: row.id,
       regionId: row.region_id,
       type: row.type,
       prompt: row.prompt,
-      options: row.type === 'choice' ? parseJsonArray(row.options) : null,
+      options,
       number: index + 1,
+      round: attempt.round,
+      total: rule.questions,
+      toWin: rule.toWin,
     };
   }
 }

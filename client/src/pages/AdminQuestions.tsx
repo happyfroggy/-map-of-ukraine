@@ -12,6 +12,7 @@ interface RegionCount {
 }
 
 const REQUIRED = 3;
+const FOR_RETRY = 4;
 
 export function AdminQuestions() {
   const regions = useRegions();
@@ -50,18 +51,25 @@ export function AdminQuestions() {
 
   const regionName = regions.find((r) => r.id === regionId)?.name ?? '';
   const lacking = counts.filter((c) => c.count < REQUIRED);
+  const noRetry = counts.filter((c) => c.count >= REQUIRED && c.count < FOR_RETRY);
 
   return (
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-2xl font-extrabold">Банк питань</h1>
         <p className="text-sm text-slate-500">
-          Для кожного регіону потрібно щонайменше {REQUIRED} питання. Якщо їх більше, кожен гравець отримає випадкові {REQUIRED}.
+          Для кожного регіону потрібно щонайменше {REQUIRED} питання, а для повторної спроби (3 правильні з 4) — {FOR_RETRY}.
+          Якщо питань більше, кожен гравець отримує випадкові, а варіанти відповідей перемішуються для кожного окремо.
         </p>
       </div>
       {lacking.length > 0 && (
         <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
           Недостатньо питань: {lacking.map((c) => `${c.name} (${c.count})`).join(', ')}. Гру не вдасться розпочати.
+        </p>
+      )}
+      {noRetry.length > 0 && (
+        <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+          Лише {REQUIRED} питання — повторна спроба буде недоступна: {noRetry.map((c) => c.name).join(', ')}.
         </p>
       )}
       <ErrorNote>{error}</ErrorNote>
@@ -88,7 +96,10 @@ export function AdminQuestions() {
               {c.name}
               <span
                 className={`rounded-full px-2 text-xs font-bold ${
-                  c.count < REQUIRED ? 'bg-red-100 text-red-700' : c.regionId === regionId ? 'bg-white/20' : 'bg-slate-100 text-slate-500'
+                  c.count < REQUIRED ? 'bg-red-100 text-red-700'
+                  : c.count < FOR_RETRY ? 'bg-amber-100 text-amber-800'
+                  : c.regionId === regionId ? 'bg-white/20'
+                  : 'bg-slate-100 text-slate-500'
                 }`}
               >
                 {c.count}
