@@ -21,7 +21,7 @@ map-of-ukraine/
 └── client/                  # React 19 + TS + Vite + Tailwind 4
     ├── scripts/build-geometry.mjs  # GeoJSON → pre-projected polygons for the map
     └── src/
-        ├── map/             # UkraineMap (Canvas, Path2D hit-testing), generated geometry.ts
+        ├── map/             # UkraineMap (Canvas, Path2D hit-testing, drones), drone silhouette, generated geometry.ts
         ├── components/      # QuestionModal, Podium/Leaderboard, UI bits
         ├── pages/           # Home, Join, Play (lobby → map → results), Admin*
         └── lib/             # REST client, typed socket requests, storage, formatting
@@ -57,7 +57,7 @@ Locally, `npm start` also loads the root `.env.local` (Neon `DATABASE_URL`, pull
 | `questions` | `type` = `choice` (4 `options` + `correct_index`) or `text` (`accepted_answers` JSON list) |
 | `game_sessions` | room code, `status` lobby → active → finished, `started_at`, `ended_at` |
 | `players` | first/last name, reconnect `token`, `finished_at` |
-| `region_attempts` | one per player×region: current `round` (1 = first visit, 2+ = retries), drawn `question_ids`, correct/wrong counters, `status` in_progress/green/red |
+| `region_attempts` | one per player×region: `correct_count` = drones shot, `wrong_count` = mistakes, `current_question_id` (the drone question on screen), `status` in_progress/green |
 | `answers` | log of every submitted answer (source of the correct-answer totals) |
 | `app_meta` | key/value, e.g. `seed_version` |
 
@@ -65,15 +65,13 @@ Timestamps are epoch milliseconds (BIGINT). The DB is the source of truth; game 
 
 ## Game rules (server-enforced)
 
-- **First visit** to a region: best of 3 — **2 correct → explored (green)**, **2 wrong → wrongly explored (blue)**, 1:1 → tie-breaker.
-- **Returning to a blue region** starts a retry: 4 questions (unseen ones first), **3 correct → explored**; 2 wrong ends the retry early. Retries are unlimited.
-- Map colours: white — not explored, yellow — started but not finished, blue — wrongly explored, green — explored.
-- Each player gets random questions, and choice options are shuffled per player (stable when a question is re-opened).
-- Text answers: case-insensitive, trimmed, whitespace/punctuation-tolerant, all apostrophe variants (`' ’ ʼ`) treated as equal; multiple accepted answers allowed.
-- A player **finishes when all 25 regions are explored**; time = from admin "Start" to that moment (or to the forced end).
-- Ranking: most explored regions ↓, then shortest time ↑; exact ties share a rank.
+- The map starts **yellow**; every region has **3 drones** (Shahed silhouettes), one question each.
+- A **correct answer shoots a drone down**. A **wrong answer leaves the drone** and it gets a **different question** next time (spare questions first; a question answered correctly is never asked again; when spares run out, previously missed ones come back).
+- A region with no drones left turns **green**. A player **finishes when all 75 drones are down**; time = from admin "Start" to that moment (or to the forced end).
+- Choice options are shuffled per player; text answers are case-, whitespace-, punctuation- and apostrophe-insensitive.
+- Ranking: most drones shot ↓, then fewer mistakes ↑, then shortest time ↑; exact ties share a rank.
 - The game ends automatically when every player finishes, or when the admin forces the end.
-- Starter bank: 4 questions per region (100). New seed batches are added to existing databases once (`app_meta.seed_version`), without restoring questions the admin deleted.
+- Starter bank: 4 questions per region (3 drones + 1 spare). New seed batches are added to existing databases once (`app_meta.seed_version`), without restoring questions the admin deleted.
 
 ## REST API
 

@@ -76,8 +76,11 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 
 -- Migrations (idempotent, safe to run on every start) --------------------
--- v2: returning to a wrongly explored region starts a new round on the same attempt row.
+-- v2 (retry rounds, superseded by drones; kept so existing databases stay valid)
 ALTER TABLE region_attempts ADD COLUMN IF NOT EXISTS round INTEGER NOT NULL DEFAULT 1;
+-- v3 drones: correct_count = drones shot down, wrong_count = mistakes;
+-- the question currently shown for the next drone (so re-opening resumes it).
+ALTER TABLE region_attempts ADD COLUMN IF NOT EXISTS current_question_id INTEGER REFERENCES questions(id) ON DELETE SET NULL;
 `;
 
 export type SqlParam = string | number | boolean | null;

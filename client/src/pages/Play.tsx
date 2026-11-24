@@ -8,7 +8,7 @@ import { errorMessage, formatDuration, useNow } from '../lib/format.ts';
 import { createSocket, request, type GameSocket } from '../lib/socket.ts';
 import { playerTokenStore } from '../lib/storage.ts';
 import { useRegions } from '../lib/useRegions.ts';
-import { MapLegend, STATUS_LABELS, UkraineMap } from '../map/UkraineMap.tsx';
+import { MapLegend, UkraineMap } from '../map/UkraineMap.tsx';
 
 /** Owns the player's socket: resumes by token on every (re)connect and tracks room events. */
 function usePlayerGame() {
@@ -84,7 +84,6 @@ export function Play() {
       setError('');
       try {
         const question = await request(socket, 'region:open', { regionId });
-        setState((s) => s && { ...s, regions: { ...s.regions, [regionId]: 'in_progress' } }); // new visit or retry
         setOpen({ regionId, question });
       } catch (err) {
         setError(errorMessage(err));
@@ -92,7 +91,7 @@ export function Play() {
         setOpening(false);
       }
     },
-    [opening, setState, socketRef],
+    [opening, socketRef],
   );
 
   const answer = useCallback(
@@ -106,7 +105,8 @@ export function Play() {
         (s) =>
           s && {
             ...s,
-            regions: { ...s.regions, [question.regionId]: result.regionStatus },
+            drones: { ...s.drones, [question.regionId]: result.dronesLeft },
+            mistakes: s.mistakes + (result.correct ? 0 : 1),
             finishedAt: result.playerFinished ? Date.now() + clockOffset.current : s.finishedAt,
           },
       );
@@ -130,11 +130,11 @@ export function Play() {
   if (!state) return <Spinner label="Підключення до гри…" />;
 
   const me = state.player;
-  const counts = Object.values(state.regions).reduce(
-    (acc, s) => ({ ...acc, [s]: acc[s] + 1 }),
-    { green: 0, red: 0, in_progress: 0 },
-  );
-  const total = regions.length || 25;
+  const totalRegions = regions.length || 25;
+  const totalDrones = totalRegions * state.dronesPerRegion;
+  const opened = Object.values(state.drones);
+  const shot = opened.reduce((sum, left) => sum + (state.dronesPerRegion - left), 0);
+  const cleared = opened.filter((left) => left === 0).length;
   const elapsed = state.session.startedAt ? (state.finishedAt ?? now) - state.session.startedAt : 0;
 
   // ----- results -----
@@ -202,32 +202,35 @@ export function Play() {
         <div className="flex items-center gap-2 text-sm sm:gap-3">
           <span className="hidden font-medium text-slate-600 sm:inline">{fullName(me)}</span>
           <Stat label="Час" value={formatDuration(elapsed)} />
-          <Stat label="Досліджено" value={`${counts.green}/${total}`} className="text-green-600" />
-          {counts.red > 0 && <Stat label="Неправильно" value={counts.red} className="text-blue-600" />}
+          <Stat label="Збито" value={`${shot}/${totalDrones}`} className="text-orange-600" />
+          <Stat label="Очищено" value={`${cleared}/${totalRegions}`} className="text-green-600" />
+          <Stat label="Помилок" value={state.mistakes} className="text-red-500" />
         </div>
       </header>
 
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-        <div className="flex h-full">
-          <div className="bg-green-500 transition-all" style={{ width: `${(counts.green / total) * 100}%` }} />
-          <div className="bg-blue-500 transition-all" style={{ width: `${(counts.red / total) * 100}%` }} />
-        </div>
+        <div className="h-full bg-green-500 transition-all" style={{ width: `${(shot / totalDrones) * 100}%` }} />
       </div>
 
       {state.finishedAt ? (
         <div className="rounded-2xl bg-ua-blue px-4 py-3 text-center font-semibold text-white">
-          Ви дослідили всі регіони за {formatDuration(elapsed)}! Очікуємо інших учасників…
+          Ви збили всі {totalDrones} дронів за {formatDuration(elapsed)}! Очікуємо інших учасників…
         </div>
       ) : (
         <p className="text-center text-sm text-slate-500">
-          Оберіть регіон на мапі, щоб відповісти на його питання.
-          {counts.red > 0 && ` Сині регіони (${STATUS_LABELS.red.toLowerCase()}) можна пройти ще раз — потрібно 3 правильні з 4.`}
+          Оберіть область і відповідайте на питання: кожна правильна відповідь збиває дрон. Без дронів область стає зеленою.
         </p>
       )}
       <ErrorNote>{error}</ErrorNote>
 
       <div className="card bg-sky-50 p-2 sm:p-4">
-        <UkraineMap statuses={state.regions} names={names} onSelect={selectRegion} disabled={opening || !!state.finishedAt} />
+        <UkraineMap
+          drones={state.drones}
+          dronesPerRegion={state.dronesPerRegion}
+          names={names}
+          onSelect={selectRegion}
+          disabled={opening || !!state.finishedAt}
+        />
       </div>
       <MapLegend />
 

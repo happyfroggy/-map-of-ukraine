@@ -1,37 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RegionStatus } from '../../../shared/types.ts';
+import { DroneIcon } from '../components/DroneIcon.tsx';
+import { traceDrone } from './drone.ts';
 import { DECOR_SHAPES, MAP_HEIGHT, MAP_WIDTH, REGION_SHAPES, type RegionShape } from './geometry.ts';
 
 export interface UkraineMapProps {
-  statuses: Record<string, RegionStatus>;
+  /** Drones left per region; regions missing here still have all `dronesPerRegion` drones. */
+  drones: Record<string, number>;
+  dronesPerRegion: number;
   names: Record<string, string>;
-  /** Called with a region id when a not-yet-explored region is clicked (blue ones can be retried). */
+  /** Called with a region id when a region that still has drones is clicked. */
   onSelect?: (regionId: string) => void;
   disabled?: boolean;
 }
 
 const COLORS = {
-  neutral: '#ffffff', // не досліджено
-  neutralHover: '#e0ecff',
-  in_progress: '#fcd34d', // не допройдено
-  in_progressHover: '#fbbf24',
-  green: '#22c55e', // досліджено
-  red: '#3b82f6', // неправильно досліджено (status 'red' in the data model)
-  redHover: '#2563eb',
+  region: '#fcd34d', // є безпілотники
+  regionHover: '#fbbf24',
+  cleared: '#22c55e', // очищено
   decor: '#cbd5e1',
-  border: '#94a3b8',
+  border: '#b45309',
+  clearedBorder: '#15803d',
   hoverBorder: '#0f172a',
+  drone: '#1f2937',
+  droneEdge: '#ffffff',
 };
 
-/** Legend / tooltip wording for each state. */
-export const STATUS_LABELS = {
-  none: 'Не досліджено',
-  in_progress: 'Не допройдено',
-  red: 'Неправильно досліджено',
-  green: 'Досліджено',
+/** Legend / tooltip wording. */
+export const MAP_LABELS = {
+  hasDrones: 'Є безпілотники',
+  cleared: 'Очищено',
 } as const;
-const FLASH_MS = 700;
+
+const FLASH_MS = 700; // region turning green
+const BLAST_MS = 650; // drone shot down
 const LABEL_MIN_WIDTH = 560; // CSS px; below this labels would overlap
+const ROW_SPACING = 19; // map units between drones in a region's row (see build-geometry)
 
 interface PreparedShape extends RegionShape {
   path: Path2D;
@@ -63,47 +66,42 @@ function hitTest(x: number, y: number): string | null {
   return regions.find((r) => hitCtx!.isPointInPath(r.path, x, y, 'evenodd'))?.id ?? null;
 }
 
-/** Finished a round (green or blue) — used for the colour-change flash. */
-const isResolved = (s: RegionStatus | undefined) => s === 'green' || s === 'red';
-/** Everything except explored regions can be opened; blue ones start a retry. */
-const isClickable = (s: RegionStatus | undefined) => s !== 'green';
-
-export function UkraineMap({ statuses, names, onSelect, disabled = false }: UkraineMapProps) {
+export function UkraineMap({ drones, dronesPerRegion, names, onSelect, disabled = false }: UkraineMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useRef({ width: 0, dpr: 1 });
   const hovered = useRef<string | null>(null);
   const flashes = useRef(new Map<string, number>());
-  const prevStatuses = useRef<Record<string, RegionStatus>>(statuses);
+  const blasts = useRef<{ regionId: string; index: number; start: number }[]>([]);
+  const prevDrones = useRef<Record<string, number>>(drones);
   const frame = useRef(0);
-  const props = useRef({ statuses, names, disabled });
-  props.current = { statuses, names, disabled };
+  const props = useRef({ drones, dronesPerRegion, names, disabled });
+  props.current = { drones, dronesPerRegion, names, disabled };
   const [tooltip, setTooltip] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  const leftIn = (id: string) => props.current.drones[id] ?? props.current.dronesPerRegion;
 
   const draw = useCallback((now: number): boolean => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     const { width, dpr } = size.current;
     if (!canvas || !ctx || !width) return false;
-    const { statuses, names, disabled } = props.current;
+    const { drones, dronesPerRegion, names, disabled } = props.current;
+    const left = (id: string) => drones[id] ?? dronesPerRegion;
     const { regions, decor } = getShapes();
     const s = width / MAP_WIDTH;
     let animating = false;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // ----- regions (map units) -----
     ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
     ctx.lineJoin = 'round';
-
     for (const r of regions) {
-      const status = statuses[r.id];
-      const hot = !disabled && hovered.current === r.id && isClickable(status);
-      ctx.fillStyle =
-        status === 'green' ? COLORS.green
-        : status === 'red' ? (hot ? COLORS.redHover : COLORS.red)
-        : status === 'in_progress' ? (hot ? COLORS.in_progressHover : COLORS.in_progress)
-        : hot ? COLORS.neutralHover
-        : COLORS.neutral;
+      const cleared = left(r.id) === 0;
+      const hot = !disabled && !cleared && hovered.current === r.id;
+      ctx.fillStyle = cleared ? COLORS.cleared : hot ? COLORS.regionHover : COLORS.region;
       ctx.fill(r.path, 'evenodd');
 
       const started = flashes.current.get(r.id);
@@ -117,44 +115,100 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
         }
       }
     }
-
-    ctx.strokeStyle = COLORS.border;
     ctx.lineWidth = 1 / s;
-    for (const r of regions) ctx.stroke(r.path);
-
+    for (const r of regions) {
+      ctx.strokeStyle = left(r.id) === 0 ? COLORS.clearedBorder : COLORS.border;
+      ctx.stroke(r.path);
+    }
     ctx.fillStyle = COLORS.decor;
+    ctx.strokeStyle = COLORS.border;
     for (const d of decor) {
       ctx.fill(d.path, 'evenodd');
       ctx.stroke(d.path);
     }
-
     const hot = hovered.current && !disabled ? regions.find((r) => r.id === hovered.current) : undefined;
-    if (hot && isClickable(statuses[hot.id])) {
+    if (hot && left(hot.id) > 0) {
       ctx.strokeStyle = COLORS.hoverBorder;
       ctx.lineWidth = 2.5 / s;
       ctx.stroke(hot.path);
     }
 
-    // Labels are drawn in CSS pixels so text stays crisp and readable at any size.
+    // ----- labels, drones and blasts (CSS pixels, crisp at any size) -----
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     if (width >= LABEL_MIN_WIDTH) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
       const base = Math.min(13, Math.max(9, width / 85));
       for (const r of regions) {
         const name = names[r.id];
         if (!name) continue;
         const label = r.id === 'crimea' ? 'АР Крим' : name;
-        const status = statuses[r.id];
-        const onColor = isResolved(status);
+        const cleared = left(r.id) === 0;
         ctx.font = `600 ${label.length > 13 ? base * 0.85 : base}px system-ui, -apple-system, sans-serif`;
         ctx.lineWidth = 3;
-        ctx.strokeStyle = onColor ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.85)';
-        ctx.fillStyle = onColor ? '#ffffff' : '#334155';
+        ctx.strokeStyle = cleared ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.8)';
+        ctx.fillStyle = cleared ? '#ffffff' : '#422006';
         const [x, y] = [r.label[0] * s, r.label[1] * s];
         ctx.strokeText(label, x, y);
         ctx.fillText(label, x, y);
       }
+    }
+
+    // A row of 3 drones needs room; on narrow maps show one drone with a "×N" badge.
+    const compact = ROW_SPACING * s < 15;
+    const r = compact ? Math.max(6, Math.min(9, width / 45)) : Math.min(11, ROW_SPACING * s * 0.46);
+    const drawDrone = (x: number, y: number, alpha = 1, scale = 1) => {
+      ctx.globalAlpha = alpha;
+      traceDrone(ctx, x, y, r * scale);
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = COLORS.droneEdge;
+      ctx.stroke();
+      ctx.fillStyle = COLORS.drone;
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = COLORS.drone;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    };
+    for (const region of regions) {
+      const n = left(region.id);
+      const spots = region.drones ?? [];
+      if (!n || !spots.length) continue;
+      if (compact) {
+        const [mx, my] = spots[Math.floor(spots.length / 2)]!;
+        drawDrone(mx * s, my * s);
+        if (n > 1) {
+          ctx.font = `700 ${Math.round(r * 1.1)}px system-ui, -apple-system, sans-serif`;
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#ffffff';
+          ctx.fillStyle = COLORS.drone;
+          ctx.strokeText(`×${n}`, mx * s + r * 1.6, my * s + r * 0.6);
+          ctx.fillText(`×${n}`, mx * s + r * 1.6, my * s + r * 0.6);
+        }
+      } else {
+        for (let i = 0; i < Math.min(n, spots.length); i++) drawDrone(spots[i]![0] * s, spots[i]![1] * s);
+      }
+    }
+
+    // Shot-down drones: the drone shrinks and fades inside an expanding orange blast.
+    blasts.current = blasts.current.filter((b) => now - b.start < BLAST_MS);
+    for (const b of blasts.current) {
+      const region = regions.find((x) => x.id === b.regionId);
+      const spots = region?.drones ?? [];
+      const spot = compact ? spots[Math.floor(spots.length / 2)] : spots[b.index];
+      if (!spot) continue;
+      const t = (now - b.start) / BLAST_MS;
+      const [x, y] = [spot[0] * s, spot[1] * s];
+      ctx.beginPath();
+      ctx.arc(x, y, r * (0.6 + 1.8 * t), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(249,115,22,${0.85 * (1 - t)})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, r * (0.3 + 1.1 * t), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(254,240,138,${0.9 * (1 - t)})`;
+      ctx.fill();
+      if (t < 0.5) drawDrone(x, y, 1 - t * 2, 1 - t);
+      animating = true;
     }
     return animating;
   }, []);
@@ -194,15 +248,17 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
     };
   }, [draw]);
 
-  // Flash regions whose status just changed.
+  // Animate drones that were just shot down and regions that were just cleared.
   useEffect(() => {
     const now = performance.now();
-    for (const [id, status] of Object.entries(statuses)) {
-      if (prevStatuses.current[id] !== status && isResolved(status)) flashes.current.set(id, now);
+    for (const [id, n] of Object.entries(drones)) {
+      const before = prevDrones.current[id] ?? dronesPerRegion;
+      for (let i = before - 1; i >= n; i--) blasts.current.push({ regionId: id, index: i, start: now });
+      if (n === 0 && before > 0) flashes.current.set(id, now);
     }
-    prevStatuses.current = statuses;
+    prevDrones.current = drones;
     scheduleDraw();
-  }, [statuses, names, disabled, scheduleDraw]);
+  }, [drones, dronesPerRegion, names, disabled, scheduleDraw]);
 
   const toMap = (e: React.PointerEvent | React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -218,8 +274,7 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
       hovered.current = id;
       scheduleDraw();
     }
-    const clickable = id && !disabled && isClickable(statuses[id]);
-    canvasRef.current!.style.cursor = clickable ? 'pointer' : 'default';
+    canvasRef.current!.style.cursor = id && !disabled && leftIn(id) > 0 ? 'pointer' : 'default';
     setTooltip(id ? { id, x: p.cssX, y: p.cssY } : null);
   };
 
@@ -233,10 +288,10 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
     if (disabled || !onSelect) return;
     const p = toMap(e);
     const id = hitTest(p.x, p.y);
-    if (id && isClickable(statuses[id])) onSelect(id);
+    if (id && leftIn(id) > 0) onSelect(id);
   };
 
-  const tipStatus = tooltip ? statuses[tooltip.id] : undefined;
+  const tipLeft = tooltip ? leftIn(tooltip.id) : 0;
 
   return (
     <div ref={wrapRef} className="relative w-full select-none" style={{ touchAction: 'manipulation' }}>
@@ -254,21 +309,15 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
           style={{ left: tooltip.x, top: tooltip.y - 10 }}
         >
           {names[tooltip.id] ?? tooltip.id}
-          {tipStatus === 'green' && ` · ${STATUS_LABELS.green.toLowerCase()}`}
-          {tipStatus === 'red' && ` · ${STATUS_LABELS.red.toLowerCase()} — спробуйте ще раз`}
-          {tipStatus === 'in_progress' && ` · ${STATUS_LABELS.in_progress.toLowerCase()}`}
+          {tipLeft === 0 ? ' · очищено' : ` · дронів: ${tipLeft}`}
         </div>
       )}
       {/* Accessible fallback: the same regions as buttons for keyboard / screen-reader users. */}
       <ul className="sr-only">
         {REGION_SHAPES.map((r) => (
           <li key={r.id}>
-            <button
-              type="button"
-              disabled={disabled || !isClickable(statuses[r.id])}
-              onClick={() => onSelect?.(r.id)}
-            >
-              {names[r.id] ?? r.id}
+            <button type="button" disabled={disabled || leftIn(r.id) === 0} onClick={() => onSelect?.(r.id)}>
+              {names[r.id] ?? r.id}: дронів {leftIn(r.id)}
             </button>
           </li>
         ))}
@@ -278,20 +327,19 @@ export function UkraineMap({ statuses, names, onSelect, disabled = false }: Ukra
 }
 
 export function MapLegend() {
-  const items = [
-    [COLORS.neutral, STATUS_LABELS.none],
-    [COLORS.in_progress, STATUS_LABELS.in_progress],
-    [COLORS.red, STATUS_LABELS.red],
-    [COLORS.green, STATUS_LABELS.green],
-  ] as const;
   return (
-    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-600">
-      {items.map(([color, label]) => (
-        <span key={label} className="inline-flex items-center gap-1.5">
-          <span className="h-3 w-3 rounded-sm ring-1 ring-slate-400" style={{ background: color }} />
-          {label}
-        </span>
-      ))}
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-600">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded-sm ring-1 ring-amber-700" style={{ background: COLORS.region }} />
+        {MAP_LABELS.hasDrones}
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded-sm ring-1 ring-green-700" style={{ background: COLORS.cleared }} />
+        {MAP_LABELS.cleared}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <DroneIcon className="h-4 w-4" /> = 1 питання, правильна відповідь збиває дрон
+      </span>
     </div>
   );
 }

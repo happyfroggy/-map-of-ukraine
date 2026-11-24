@@ -58,8 +58,8 @@ export function AdminQuestions() {
       <div>
         <h1 className="text-2xl font-extrabold">Банк питань</h1>
         <p className="text-sm text-slate-500">
-          Для кожного регіону потрібно щонайменше {REQUIRED} питання, а для повторної спроби (3 правильні з 4) — {FOR_RETRY}.
-          Якщо питань більше, кожен гравець отримує випадкові, а варіанти відповідей перемішуються для кожного окремо.
+          Над кожною областю {REQUIRED} дрони — по питанню на дрон, тож потрібно щонайменше {REQUIRED} питання. Запасні питання ({FOR_RETRY}+)
+          потрібні, щоб після помилки дрон отримав інше питання. Варіанти відповідей перемішуються для кожного гравця.
         </p>
       </div>
       {lacking.length > 0 && (
@@ -69,7 +69,7 @@ export function AdminQuestions() {
       )}
       {noRetry.length > 0 && (
         <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
-          Лише {REQUIRED} питання — повторна спроба буде недоступна: {noRetry.map((c) => c.name).join(', ')}.
+          Немає запасних питань — після помилки доведеться відповідати на ті самі: {noRetry.map((c) => c.name).join(', ')}.
         </p>
       )}
       <ErrorNote>{error}</ErrorNote>

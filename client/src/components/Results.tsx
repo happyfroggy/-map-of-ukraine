@@ -21,7 +21,7 @@ export function Podium({ results }: { results: ResultRow[] }) {
                 <div className="text-3xl sm:text-4xl">{medal}</div>
                 <div className="mt-1 line-clamp-2 text-sm font-bold text-slate-900 sm:text-base">{fullName(r)}</div>
                 <div className="text-xs text-slate-500">
-                  {r.greenRegions} досліджено · {formatDuration(r.timeMs)}
+                  {r.correctAnswers} збито · {r.mistakes} пом. · {formatDuration(r.timeMs)}
                 </div>
               </div>
             ) : (
@@ -45,9 +45,9 @@ export function Leaderboard({ results, highlightId }: { results: ResultRow[]; hi
           <tr>
             <th className="px-4 py-3 font-semibold">Місце</th>
             <th className="px-4 py-3 font-semibold">Учасник</th>
-            <th className="px-4 py-3 text-right font-semibold">Досліджено</th>
-            <th className="px-4 py-3 text-right font-semibold">Неправильно</th>
-            <th className="px-4 py-3 text-right font-semibold">Правильних відповідей</th>
+            <th className="px-4 py-3 text-right font-semibold">Збито дронів</th>
+            <th className="px-4 py-3 text-right font-semibold">Помилок</th>
+            <th className="px-4 py-3 text-right font-semibold">Очищено областей</th>
             <th className="px-4 py-3 text-right font-semibold">Час</th>
           </tr>
         </thead>
@@ -59,19 +59,19 @@ export function Leaderboard({ results, highlightId }: { results: ResultRow[]; hi
                 {fullName(r)}
                 {r.id === highlightId && <span className="ml-2 text-xs font-medium text-ua-blue">(ви)</span>}
               </td>
-              <td className="px-4 py-3 text-right font-bold text-green-600 tabular-nums">{r.greenRegions}</td>
-              <td className="px-4 py-3 text-right text-blue-600 tabular-nums">{r.redRegions}</td>
-              <td className="px-4 py-3 text-right tabular-nums">{r.correctAnswers}</td>
+              <td className="px-4 py-3 text-right font-bold text-orange-600 tabular-nums">{r.correctAnswers}</td>
+              <td className="px-4 py-3 text-right text-red-500 tabular-nums">{r.mistakes}</td>
+              <td className="px-4 py-3 text-right text-green-600 tabular-nums">{r.greenRegions}</td>
               <td className="px-4 py-3 text-right tabular-nums">
                 {formatDuration(r.timeMs)}
-                {!r.finished && <span className="ml-1 text-xs text-slate-400" title="Не дослідив усі регіони">*</span>}
+                {!r.finished && <span className="ml-1 text-xs text-slate-400" title="Не збив усіх дронів">*</span>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       {results.some((r) => !r.finished) && (
-        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">* не дослідив усі регіони до кінця гри — час рахується до завершення гри</p>
+        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">* не збив усіх дронів до кінця гри — час рахується до завершення гри</p>
       )}
     </div>
   );

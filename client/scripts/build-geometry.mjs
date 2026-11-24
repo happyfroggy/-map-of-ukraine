@@ -122,6 +122,40 @@ function labelPoint(ring) {
   return best.map((v) => Math.round(v));
 }
 
+const DRONES_PER_REGION = 3;
+
+/**
+ * Where to draw a region's drones: a tidy row just above/below the label when
+ * it fits, otherwise the roomiest spots inside the region, spaced apart.
+ */
+function dronePoints(ring, label) {
+  const fits = ([x, y], margin) => inside(x, y, ring) && distToRing(x, y, ring) >= margin;
+  for (const dy of [-17, 17, -24, 24]) {
+    for (const gap of [19, 16, 13]) {
+      const row = [-gap, 0, gap].map((dx) => [label[0] + dx, label[1] + dy]);
+      if (row.every((p) => fits(p, 5))) return row.map((p) => p.map(Math.round));
+    }
+  }
+  // Fallback: greedy farthest-from-edge points, away from the label and each other.
+  const xs = ring.map((p) => p[0]), ys = ring.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const cands = [];
+  for (let x = x0; x <= x1; x += 2) for (let y = y0; y <= y1; y += 2) {
+    if (inside(x, y, ring)) cands.push({ p: [x, y], d: distToRing(x, y, ring) });
+  }
+  cands.sort((a, b) => b.d - a.d);
+  for (const [spacing, labelGap] of [[16, 11], [12, 9], [9, 0]]) {
+    const chosen = [];
+    for (const c of cands) {
+      if (Math.abs(c.p[0] - label[0]) < 26 && Math.abs(c.p[1] - label[1]) < labelGap) continue;
+      if (chosen.some((q) => Math.hypot(q[0] - c.p[0], q[1] - c.p[1]) < spacing)) continue;
+      chosen.push(c.p);
+      if (chosen.length === DRONES_PER_REGION) return chosen.map((p) => p.map(Math.round));
+    }
+  }
+  throw new Error('no room for drones');
+}
+
 const round = (v) => Math.round(v * 10) / 10;
 const regions = [];
 const decor = [];
@@ -143,7 +177,9 @@ for (const f of geo.features) {
     });
   }
   totalPoints += rings.reduce((s, r) => s + r.length, 0);
-  const shape = { id, rings: rings.map((r) => r.flatMap(([x, y]) => [round(x), round(y)])), label: labelPoint(largest) };
+  const label = labelPoint(largest);
+  const shape = { id, rings: rings.map((r) => r.flatMap(([x, y]) => [round(x), round(y)])), label };
+  if (ISO_TO_ID[iso]) shape.drones = dronePoints(largest, label);
   (ISO_TO_ID[iso] ? regions : decor).push(shape);
 }
 
@@ -159,6 +195,8 @@ export interface RegionShape {
   rings: number[][];
   /** Label anchor inside the region. */
   label: [number, number];
+  /** Drone (question) positions, ${DRONES_PER_REGION} per playable region. */
+  drones?: [number, number][];
 }
 
 export const MAP_WIDTH = ${WIDTH};

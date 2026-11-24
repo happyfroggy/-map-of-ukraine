@@ -9,22 +9,17 @@ export interface Region {
   name: string;
 }
 
-/** A question as sent to players — never contains the correct answer. */
+/** A question as sent to players — never contains the correct answer. Each question is one drone. */
 export interface PublicQuestion {
   id: number;
   regionId: string;
   type: QuestionType;
   prompt: string;
-  /** 4 options for 'choice', null for 'text'. */
+  /** 4 options for 'choice' (shuffled per player), null for 'text'. */
   options: string[] | null;
-  /** 1-based position within the current round. */
-  number: number;
-  /** 1 = first visit, 2+ = returning to a wrongly explored region. */
-  round: number;
-  /** Max questions in this round (3 first time, 4 on a retry). */
-  total: number;
-  /** Correct answers needed to explore the region in this round. */
-  toWin: number;
+  /** Drones still over the region, including the one this question belongs to. */
+  dronesLeft: number;
+  dronesTotal: number;
 }
 
 export interface QuestionInput {
@@ -62,9 +57,11 @@ export interface SessionInfo {
 }
 
 export interface PlayerProgress extends PublicPlayer {
+  /** Drones shot down = correct answers. */
   correctAnswers: number;
+  /** Regions cleared of all drones (green). */
   greenRegions: number;
-  redRegions: number;
+  mistakes: number;
   finishedAt: number | null;
 }
 
@@ -72,7 +69,7 @@ export interface ResultRow extends PublicPlayer {
   rank: number;
   correctAnswers: number;
   greenRegions: number;
-  redRegions: number;
+  mistakes: number;
   timeMs: number;
   finished: boolean;
 }
@@ -80,8 +77,11 @@ export interface ResultRow extends PublicPlayer {
 export interface PlayerState {
   player: PublicPlayer;
   session: SessionInfo;
-  regions: Record<string, RegionStatus>;
-  /** When this player resolved their last region. */
+  /** Drones left per region the player has opened; unopened regions have dronesPerRegion. */
+  drones: Record<string, number>;
+  dronesPerRegion: number;
+  mistakes: number;
+  /** When this player cleared their last region. */
   finishedAt: number | null;
   results: ResultRow[] | null;
   /** Server clock, so clients can correct for a skewed device clock. */
@@ -89,10 +89,14 @@ export interface PlayerState {
 }
 
 export interface AnswerResult {
+  /** Correct = the drone is shot down. */
   correct: boolean;
   /** Human-readable correct answer, shown after answering. */
   correctAnswer: string;
-  regionStatus: RegionStatus;
+  dronesLeft: number;
+  /** All drones of the region are down — it turns green. */
+  regionCleared: boolean;
+  /** The next drone's question (a different one after a mistake), or null when cleared. */
   nextQuestion: PublicQuestion | null;
   playerFinished: boolean;
 }
@@ -101,6 +105,7 @@ export interface AdminSnapshot {
   session: SessionInfo;
   players: PlayerProgress[];
   totalRegions: number;
+  dronesPerRegion: number;
   results: ResultRow[] | null;
 }
 

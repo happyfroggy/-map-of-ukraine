@@ -1,33 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { RETRY_ROUND, isAnswerCorrect, normalizeAnswer, optionOrder, rankResults, resolveRegionStatus } from '../src/domain/rules.ts';
+import { DRONES_PER_REGION, dronesLeft, isAnswerCorrect, normalizeAnswer, optionOrder, rankResults, regionStatus } from '../src/domain/rules.ts';
 
-describe('resolveRegionStatus (early stopping)', () => {
-  it('2 correct → green, 2 wrong → red', () => {
-    assert.equal(resolveRegionStatus(2, 0), 'green');
-    assert.equal(resolveRegionStatus(0, 2), 'red');
-  });
-  it('1:1 needs a tie-breaker; it decides the outcome', () => {
-    assert.equal(resolveRegionStatus(1, 1), 'in_progress');
-    assert.equal(resolveRegionStatus(2, 1), 'green');
-    assert.equal(resolveRegionStatus(1, 2), 'red');
-  });
-  it('single answer keeps the region open', () => {
-    assert.equal(resolveRegionStatus(1, 0), 'in_progress');
-    assert.equal(resolveRegionStatus(0, 1), 'in_progress');
-  });
-});
-
-describe('retry round (3 correct out of 4)', () => {
-  it('3 correct → green, even after one mistake', () => {
-    assert.equal(resolveRegionStatus(3, 0, RETRY_ROUND), 'green');
-    assert.equal(resolveRegionStatus(3, 1, RETRY_ROUND), 'green');
-    assert.equal(resolveRegionStatus(2, 1, RETRY_ROUND), 'in_progress');
-  });
-  it('2 mistakes → red immediately (3 of 4 no longer possible)', () => {
-    assert.equal(resolveRegionStatus(0, 2, RETRY_ROUND), 'red');
-    assert.equal(resolveRegionStatus(1, 2, RETRY_ROUND), 'red');
-    assert.equal(resolveRegionStatus(1, 1, RETRY_ROUND), 'in_progress');
+describe('drones', () => {
+  it('3 drones per region; each correct answer removes one; 0 left → green', () => {
+    assert.equal(DRONES_PER_REGION, 3);
+    assert.deepEqual([0, 1, 2, 3, 4].map(dronesLeft), [3, 2, 1, 0, 0]);
+    assert.deepEqual([0, 2, 3].map(regionStatus), ['in_progress', 'in_progress', 'green']);
   });
 });
 
@@ -69,18 +48,20 @@ describe('choice answers', () => {
 });
 
 describe('rankResults', () => {
-  it('sorts by explored regions desc, then time asc; ties share a rank', () => {
+  it('ranks by drones shot ↓, then mistakes ↑, then time ↑; exact ties share a rank', () => {
     const ranked = rankResults([
-      { id: 'slow', greenRegions: 10, timeMs: 9000 },
-      { id: 'best', greenRegions: 12, timeMs: 9999 },
-      { id: 'fast', greenRegions: 10, timeMs: 5000 },
-      { id: 'tie', greenRegions: 10, timeMs: 9000 },
+      { id: 'sloppy', correctAnswers: 75, mistakes: 9, timeMs: 1000 },
+      { id: 'clean-slow', correctAnswers: 75, mistakes: 0, timeMs: 9000 },
+      { id: 'fewer', correctAnswers: 60, mistakes: 0, timeMs: 500 },
+      { id: 'clean-fast', correctAnswers: 75, mistakes: 0, timeMs: 5000 },
+      { id: 'tie', correctAnswers: 75, mistakes: 0, timeMs: 9000 },
     ]);
     assert.deepEqual(ranked.map((r) => [r.id, r.rank]), [
-      ['best', 1],
-      ['fast', 2],
-      ['slow', 3],
-      ['tie', 3],
+      ['clean-fast', 1],
+      ['clean-slow', 2],
+      ['tie', 2],
+      ['sloppy', 4],
+      ['fewer', 5],
     ]);
   });
 });

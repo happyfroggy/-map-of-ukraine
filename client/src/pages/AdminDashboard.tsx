@@ -118,6 +118,7 @@ function RoomControl({ room, onClose }: { room: CreatedSession; onClose: () => v
     );
   }
   const { players, totalRegions } = snap;
+  const totalDrones = totalRegions * snap.dronesPerRegion;
   const finishedCount = players.filter((p) => p.finishedAt).length;
 
   return (
@@ -202,33 +203,31 @@ function RoomControl({ room, onClose }: { room: CreatedSession; onClose: () => v
                 <tr>
                   <th className="px-4 py-3 font-semibold">Учасник</th>
                   <th className="px-4 py-3 font-semibold">Прогрес</th>
-                  <th className="px-4 py-3 text-right font-semibold">Досліджено</th>
-                  <th className="px-4 py-3 text-right font-semibold">Правильних</th>
+                  <th className="px-4 py-3 text-right font-semibold">Збито</th>
+                  <th className="px-4 py-3 text-right font-semibold">Помилок</th>
                   <th className="px-4 py-3 text-right font-semibold">Статус</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {[...players]
-                  .sort((a, b) => b.greenRegions - a.greenRegions || b.correctAnswers - a.correctAnswers)
+                  .sort((a, b) => b.correctAnswers - a.correctAnswers || a.mistakes - b.mistakes)
                   .map((p) => (
                     <tr key={p.id}>
                       <td className="px-4 py-3 font-medium">{fullName(p)}</td>
                       <td className="w-2/5 px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="flex h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                            <div className="bg-green-500 transition-all" style={{ width: `${(p.greenRegions / totalRegions) * 100}%` }} />
-                            <div className="bg-blue-500 transition-all" style={{ width: `${(p.redRegions / totalRegions) * 100}%` }} />
+                          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className="h-full bg-green-500 transition-all" style={{ width: `${(p.correctAnswers / totalDrones) * 100}%` }} />
                           </div>
-                          <span className="w-16 text-right text-xs text-slate-500 tabular-nums" title="досліджено / неправильно">
-                            {p.greenRegions}
-                            {p.redRegions > 0 && <span className="text-blue-600"> +{p.redRegions}</span>}
+                          <span className="w-20 text-right text-xs text-slate-500 tabular-nums" title="очищено областей">
+                            {p.greenRegions}/{totalRegions} обл.
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right font-bold text-green-600 tabular-nums">
-                        {p.greenRegions}/{totalRegions}
+                      <td className="px-4 py-3 text-right font-bold text-orange-600 tabular-nums">
+                        {p.correctAnswers}/{totalDrones}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">{p.correctAnswers}</td>
+                      <td className="px-4 py-3 text-right text-red-500 tabular-nums">{p.mistakes}</td>
                       <td className="px-4 py-3 text-right">
                         {p.finishedAt ? (
                           <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">

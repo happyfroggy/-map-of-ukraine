@@ -2,32 +2,15 @@
 import { createHash } from 'node:crypto';
 import type { QuestionType, RegionStatus } from '../../../shared/types.ts';
 
-export interface RoundRule {
-  /** Questions drawn for the round. */
-  questions: number;
-  /** Correct answers needed to explore the region. */
-  toWin: number;
-}
+/** Every region starts with this many drones; each correct answer shoots one down. */
+export const DRONES_PER_REGION = 3;
 
-/** First visit: best of 3 (2 correct → explored). */
-export const FIRST_ROUND: RoundRule = { questions: 3, toWin: 2 };
-/** Returning to a wrongly explored region: 3 correct out of 4. */
-export const RETRY_ROUND: RoundRule = { questions: 4, toWin: 3 };
+/** A region needs this many distinct questions (one per drone) to be playable. */
+export const QUESTIONS_PER_REGION = DRONES_PER_REGION;
 
-export const roundRule = (round: number): RoundRule => (round <= 1 ? FIRST_ROUND : RETRY_ROUND);
-
-/** Minimum questions per region to start a game. */
-export const QUESTIONS_PER_REGION = FIRST_ROUND.questions;
-
-/**
- * Early stopping: the round ends as soon as the outcome is certain —
- * enough correct answers (green), or too many wrong ones to still win (red).
- */
-export function resolveRegionStatus(correct: number, wrong: number, rule: RoundRule = FIRST_ROUND): RegionStatus {
-  if (correct >= rule.toWin) return 'green';
-  if (wrong > rule.questions - rule.toWin) return 'red';
-  return 'in_progress';
-}
+/** A region turns green once all its drones are down. */
+export const dronesLeft = (correct: number): number => Math.max(0, DRONES_PER_REGION - correct);
+export const regionStatus = (correct: number): RegionStatus => (dronesLeft(correct) === 0 ? 'green' : 'in_progress');
 
 const APOSTROPHES = /[’ʼ‘`´']/g;
 const IGNORED_PUNCTUATION = /[«»"“”„.,!?;:()]/g;
@@ -74,20 +57,23 @@ export function optionOrder(seed: string, n: number): number[] {
 }
 
 export interface RankInput {
-  greenRegions: number;
+  /** Drones shot down (= correct answers). */
+  correctAnswers: number;
+  mistakes: number;
   timeMs: number;
 }
 
 /**
- * Most explored regions first, then the fastest time.
+ * Most drones shot down first, then fewer mistakes, then the fastest time.
  * Exact ties share a rank (1, 2, 2, 4 …).
  */
 export function rankResults<T extends RankInput>(rows: readonly T[]): (T & { rank: number })[] {
-  const sorted = [...rows].sort((a, b) => b.greenRegions - a.greenRegions || a.timeMs - b.timeMs);
+  const cmp = (a: T, b: T) => b.correctAnswers - a.correctAnswers || a.mistakes - b.mistakes || a.timeMs - b.timeMs;
+  const sorted = [...rows].sort(cmp);
   let prev: T | undefined;
   let prevRank = 0;
   return sorted.map((row, i) => {
-    const rank = prev && prev.greenRegions === row.greenRegions && prev.timeMs === row.timeMs ? prevRank : i + 1;
+    const rank = prev && cmp(prev, row) === 0 ? prevRank : i + 1;
     prev = row;
     prevRank = rank;
     return { ...row, rank };

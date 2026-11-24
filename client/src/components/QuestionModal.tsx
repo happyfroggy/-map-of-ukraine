@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AnswerResult, PublicQuestion } from '../../../shared/types.ts';
 import { errorMessage } from '../lib/format.ts';
+import { DroneRow } from './DroneIcon.tsx';
 import { ErrorNote } from './ui.tsx';
 
 interface Props {
@@ -14,7 +15,6 @@ const OPTION_LETTERS = ['А', 'Б', 'В', 'Г'];
 
 export function QuestionModal({ regionName, question: initial, onAnswer, onClose }: Props) {
   const [question, setQuestion] = useState(initial);
-  const [history, setHistory] = useState<boolean[]>([]);
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [chosen, setChosen] = useState<number | null>(null);
   const [text, setText] = useState('');
@@ -39,9 +39,7 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
     setBusy(true);
     setError('');
     try {
-      const r = await onAnswer(question, answer);
-      setResult(r);
-      setHistory((h) => [...h, r.correct]);
+      setResult(await onAnswer(question, answer));
     } catch (err) {
       setChosen(null);
       setError(errorMessage(err));
@@ -59,10 +57,7 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
     } else onClose();
   }
 
-  const finished = result && result.regionStatus !== 'in_progress';
-  const retry = question.round > 1;
-  const tieBreaker = !retry && question.number === 3;
-  const correctSoFar = history.filter(Boolean).length;
+  const dronesLeft = result ? result.dronesLeft : question.dronesLeft;
 
   return (
     <div
@@ -79,22 +74,11 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
           <div>
             <p className="text-xs font-semibold tracking-wide text-ua-blue uppercase">{regionName}</p>
             <p className="mt-0.5 text-sm text-slate-500">
-              Питання {question.number} з {question.total}
-              {tieBreaker && ' · вирішальне'}
-              {retry && ' · повторна спроба'}
+              {dronesLeft > 0 ? `Дронів над областю: ${dronesLeft}` : 'Усі дрони збито'}
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex gap-1.5" aria-label="Відповіді в цьому регіоні">
-              {Array.from({ length: question.total }, (_, i) => (
-                <span
-                  key={i}
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    history[i] === true ? 'bg-green-500' : history[i] === false ? 'bg-red-500' : 'bg-slate-200'
-                  }`}
-                />
-              ))}
-            </div>
+            <DroneRow left={dronesLeft} total={question.dronesTotal} className="h-7 w-7" />
             <button type="button" onClick={onClose} disabled={busy} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Закрити">
               <svg viewBox="0 0 20 20" className="h-5 w-5" fill="currentColor">
                 <path d="M6.3 5.3a1 1 0 0 0-1.4 1.4L8.6 10l-3.7 3.3a1 1 0 1 0 1.4 1.4L10 11.4l3.3 3.3a1 1 0 0 0 1.4-1.4L11.4 10l3.3-3.3a1 1 0 0 0-1.4-1.4L10 8.6 6.3 5.3z" />
@@ -102,12 +86,6 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
             </button>
           </div>
         </div>
-
-        {retry && question.number === 1 && !result && (
-          <p className="mb-4 rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm text-blue-900 ring-1 ring-blue-200">
-            Друга спроба дослідити регіон: потрібно <b>{question.toWin} правильні відповіді з {question.total}</b>.
-          </p>
-        )}
 
         <h2 id="question-title" className="mb-5 text-lg leading-snug font-bold text-slate-900 sm:text-xl">
           {question.prompt}
@@ -176,34 +154,21 @@ export function QuestionModal({ regionName, question: initial, onAnswer, onClose
         {result && (
           <div className="mt-2 flex flex-col gap-4">
             <div className={`rounded-2xl px-4 py-3 ${result.correct ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}`}>
-              <p className="font-bold">{result.correct ? '✓ Правильно!' : '✗ Неправильно'}</p>
+              <p className="font-bold">{result.correct ? '💥 Дрон збито!' : '✗ Мимо! Дрон лишається'}</p>
               {!result.correct && (
-                <p className="mt-0.5 text-sm">
-                  Правильна відповідь: <span className="font-semibold">{result.correctAnswer}</span>
-                </p>
+                <>
+                  <p className="mt-0.5 text-sm">
+                    Правильна відповідь: <span className="font-semibold">{result.correctAnswer}</span>
+                  </p>
+                  <p className="mt-1 text-sm opacity-80">Щоб збити цей дрон, відповідайте на інше питання.</p>
+                </>
               )}
             </div>
-            {finished && result.regionStatus === 'green' && (
-              <p className="text-center text-lg font-extrabold text-green-600">Регіон досліджено!</p>
+            {result.regionCleared && (
+              <p className="text-center text-lg font-extrabold text-green-600">Область очищено від дронів!</p>
             )}
-            {finished && result.regionStatus === 'red' && (
-              <div className="text-center">
-                <p className="text-lg font-extrabold text-blue-600">Регіон досліджено неправильно</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Поверніться до нього пізніше: щоб дослідити, потрібно 3 правильні відповіді з 4.
-                </p>
-              </div>
-            )}
-            {!finished && !retry && history.length === 2 && (
-              <p className="text-center text-sm font-medium text-amber-700">Рахунок 1:1 — далі вирішальне питання</p>
-            )}
-            {!finished && retry && (
-              <p className="text-center text-sm font-medium text-slate-600">
-                Правильних: {correctSoFar} з {question.toWin} потрібних
-              </p>
-            )}
-            <button ref={nextRef} type="button" className={finished ? 'btn-ghost' : 'btn-primary'} onClick={next}>
-              {result.nextQuestion ? 'Наступне питання →' : 'До мапи'}
+            <button ref={nextRef} type="button" className={result.nextQuestion ? 'btn-primary' : 'btn-ghost'} onClick={next}>
+              {result.nextQuestion ? (result.correct ? 'Наступний дрон →' : 'Інше питання →') : 'До мапи'}
             </button>
           </div>
         )}
