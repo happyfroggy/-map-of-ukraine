@@ -144,10 +144,11 @@ function dronePoints(ring, label) {
     if (inside(x, y, ring)) cands.push({ p: [x, y], d: distToRing(x, y, ring) });
   }
   cands.sort((a, b) => b.d - a.d);
-  for (const [spacing, labelGap] of [[16, 11], [12, 9], [9, 0]]) {
+  for (const [spacing, labelGap] of [[16, 18], [13, 16], [11, 14], [9, 0]]) {
     const chosen = [];
     for (const c of cands) {
-      if (Math.abs(c.p[0] - label[0]) < 26 && Math.abs(c.p[1] - label[1]) < labelGap) continue;
+      // Keep clear of the region name (≈80 map units wide, centred on the label point).
+      if (Math.abs(c.p[0] - label[0]) < 42 && Math.abs(c.p[1] - label[1]) < labelGap) continue;
       if (chosen.some((q) => Math.hypot(q[0] - c.p[0], q[1] - c.p[1]) < spacing)) continue;
       chosen.push(c.p);
       if (chosen.length === DRONES_PER_REGION) return chosen.map((p) => p.map(Math.round));
